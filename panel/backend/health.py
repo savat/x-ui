@@ -4,13 +4,12 @@ import re
 from adapters import all_adapters
 from backend import config, servicemgr, shell
 
-# Connection-level noise every public server produces (port scanners, handshake failures, stray
-# clients). These are logged at err priority but do NOT mean the service is broken. Only count
-# lines that do NOT match, i.e. real service failures (config/startup crashes, bind errors, panics).
-_BENIGN = re.compile(
-    r"failed to (?:read|write)|try another one|no suitable inbound|handshake|reject|"
-    r"connection from|(?:read|write) tcp|i/o timeout|broken pipe|connection (?:reset|refused)|"
-    r"mux client connection|websocket|socks", re.I)
+# Only these systemd messages prove a service actually broke (crash loop, exit-code failure).
+# Grepping app logs for `err`-priority lines is useless: public servers get constant connection
+# noise (port scanners, dropped/rejected handshakes) that is logged at err but means nothing.
+_UNIT_FAILURE = re.compile(
+    r"Main process exited|Failed with result|Result: exit-code|start request repeated too quickly|"
+    r"Failed to start|Job for .* failed")
 
 
 def _core():
@@ -24,8 +23,8 @@ def _core():
 def _recent_errors(units):
     n = 0
     for u in units:
-        r = shell.run(["journalctl", "-u", u, "-p", "err", "--since", "10 min ago", "--no-pager", "-q"])
-        n += len([l for l in r.out.splitlines() if l.strip() and not _BENIGN.search(l)])
+        r = shell.run(["journalctl", "-u", u, "--since", "2 min ago", "--no-pager", "-q"])
+        n += len([l for l in r.out.splitlines() if _UNIT_FAILURE.search(l)])
     return n
 
 
@@ -37,7 +36,7 @@ def run_all():
             continue
         checks = list(ad.health())
         errs = _recent_errors(ad.services) if not config.DRY_RUN else 0
-        checks.append(("no critical log errors (10 min)", errs == 0, "%d error lines" % errs if errs else ""))
+        checks.append(("no service crashes (recent)", errs == 0, "%d failure lines" % errs if errs else ""))
         report.append({"component": ad.label, "checks": checks})
     for item in report:
         item["checks"] = [{"name": n, "ok": bool(ok), "msg": m} for n, ok, m in item["checks"]]

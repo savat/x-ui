@@ -95,10 +95,17 @@ PrivateTmp=yes
 WantedBy=multi-user.target
 """ % (self.binary, self.conf_path, os.path.dirname(self.conf_path))
         write_file(os.path.join(config.SYSTEMD_DIR, "unified-hysteria.service"), unit)
-        self._render(force=True, restart=False)
         shell.run(["systemctl", "daemon-reload"], check=True)
-        shell.run(["systemctl", "enable", "--now", "unified-hysteria.service"], check=True)
-        self._verify_listening()
+        # Hysteria 2 rejects an empty auth.userpass, so a freshly installed panel (no accounts yet)
+        # must not start it. render() enables+starts it the moment the first hysteria2 user appears.
+        self._render(force=True, restart=True)
+        conn = db.connect()
+        try:
+            started = bool(db.active_accounts(conn, ("hysteria2",)))
+        finally:
+            conn.close()
+        if started:
+            self._verify_listening()
         self.mark_installed({"version": version})
 
     def _verify_listening(self, wait=15):
@@ -153,8 +160,18 @@ WantedBy=multi-user.target
         except (IOError, OSError):
             pass
         write_file(self.conf_path, text, 0o600)
+        if config.DRY_RUN:
+            return True
+        unit = "unified-hysteria.service"
+        if not accounts:
+            # Hysteria refuses an empty auth.userpass, so there is nothing valid to run until the
+            # first account exists. Keep the unit installed but disabled (no boot, no crash loop).
+            shell.run(["systemctl", "disable", "--now", unit])
+            return True
         if restart:
-            shell.run(["systemctl", "restart", "unified-hysteria.service"], check=True)
+            shell.run(["systemctl", "enable", "--now", unit], check=True)
+        else:
+            shell.run(["systemctl", "enable", unit], check=True)
         return True
 
     def sync(self):
@@ -186,6 +203,13 @@ WantedBy=multi-user.target
         return {"port": "%d/udp" % PORT, "auth": "userpass"}
 
     def health(self):
+        conn = db.connect()
+        try:
+            n_users = len(db.active_accounts(conn, ("hysteria2",)))
+        finally:
+            conn.close()
+        if not n_users:
+            return [("ready for users", True, "no accounts yet - starts automatically on the first hysteria2 user")]
         nrestarts = 0 if config.DRY_RUN else int(shell.run(
             ["systemctl", "show", "-p", "NRestarts", "--value", "unified-hysteria.service"]).out.strip() or 0)
         res = [("hysteria binary exists", os.path.exists(self.binary) or config.DRY_RUN, ""),
