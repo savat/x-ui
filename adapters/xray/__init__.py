@@ -226,7 +226,9 @@ WantedBy=multi-user.target
                 return False                     # nothing changed - no restart, no dropped connections
         except (IOError, OSError):
             pass
-        tmp = self.conf_path + ".new"
+        # Temp file must keep a recognised extension (.json): newer Xray detects the config
+        # format from the filename suffix and rejects e.g. "config.json.new".
+        tmp = self.conf_path + ".new.json"
         write_file(tmp, text, 0o640, group="nogroup")
         if os.path.exists(self.binary) or not config.DRY_RUN:
             t = shell.run([self.binary, "run", "-test", "-config", tmp])
