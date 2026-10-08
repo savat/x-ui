@@ -166,7 +166,7 @@
               u.status === 'active'
                 ? h('button', { class: 'sm', onclick: function () { wrapErr(api('POST', '/users/' + u.id + '/disable', {})).then(load); } }, 'ปิดใช้งาน')
                 : h('button', { class: 'sm', onclick: function () { wrapErr(api('POST', '/users/' + u.id + '/enable', {})).then(load); } }, 'เปิดใช้งาน'),
-              h('button', { class: 'sm', onclick: function () { var p = prompt('รหัสผ่านใหม่ (ขั้นต่ำ 8 ตัวอักษร)'); if (p) wrapErr(api('POST', '/users/' + u.id + '/reset-password', { password: p })).then(function () { toast('อัปเดตรหัสผ่านแล้ว'); }); } }, 'รหัสผ่าน'),
+              h('button', { class: 'sm', onclick: function () { var p = prompt('รหัสผ่านใหม่'); if (p) wrapErr(api('POST', '/users/' + u.id + '/reset-password', { password: p })).then(function () { toast('อัปเดตรหัสผ่านแล้ว'); }); } }, 'รหัสผ่าน'),
               h('button', { class: 'sm', onclick: function () { var n = prompt('จำนวนอุปกรณ์สูงสุด (0 = ไม่จำกัด)', u.max_connections); if (n !== null) wrapErr(api('PUT', '/users/' + u.id, { max_connections: n })).then(load); } }, 'จำกัด'),
               h('button', { class: 'danger sm', onclick: function () { if (confirm('ลบผู้ใช้ ' + u.username + ' ?')) wrapErr(api('DELETE', '/users/' + u.id)).then(load); } }, 'ลบ')
             ]));
@@ -186,7 +186,7 @@
       var cb = h('input', { type: 'checkbox', value: p }); return h('label', {}, cb, ' ' + p);
     });
     var dlg = h('dialog', {}, h('h3', {}, 'เพิ่มผู้ใช้'),
-      h('label', {}, 'ชื่อผู้ใช้'), f.username, h('label', {}, 'รหัสผ่าน (ขั้นต่ำ 8)'), f.password,
+      h('label', {}, 'ชื่อผู้ใช้'), f.username, h('label', {}, 'รหัสผ่าน'), f.password,
       h('label', {}, 'จำนวนวัน'), f.days, h('label', {}, 'จำนวนอุปกรณ์สูงสุด (0 = ไม่จำกัด)'), f.max_connections, h('label', {}, 'หมายเหตุ'), f.note,
       h('label', {}, 'โปรโตคอล'), boxes,
       h('div', { class: 'row' }, h('button', { class: 'primary', onclick: function () {

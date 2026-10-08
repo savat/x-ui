@@ -93,7 +93,7 @@ def _revoke(conn, uid):
 # ---------------------------------------------------------------- operations
 def create(conn, data):
     username = security.validate_username(data.get("username"))
-    password = security.validate_password(data.get("password"))
+    password = security.validate_password(data.get("password"), min_len=1)
     days = _int(data.get("days", 30), 1, 3650, "days")
     max_conn = _int(data.get("max_connections", 1), 0, 1000, "max_connections")
     max_dev = _int(data.get("max_devices", 0), 0, 1000, "max_devices")
@@ -191,7 +191,7 @@ def renew(conn, uid, days):
 
 
 def reset_password(conn, uid, password):
-    password = security.validate_password(password)
+    password = security.validate_password(password, min_len=1)
     get_user(conn, uid)
     conn.execute("UPDATE users SET password_hash=? WHERE id=?", (security.hash_password(password), uid))
     conn.commit()
@@ -223,7 +223,7 @@ def _set_protocols(conn, uid, row, protocols, password):
         raise ValueError("select at least one protocol")
     want = set(protocols)
     have = dict((a["protocol"], a) for a in accounts_of(conn, uid))
-    ctx = _ctx(row, security.validate_password(password) if password else None)
+    ctx = _ctx(row, security.validate_password(password, min_len=1) if password else None)
     for p in want - set(have):
         if p not in PROTOCOLS or not adapter_for(p).installed():
             raise ValueError("protocol '%s' unavailable" % p)
