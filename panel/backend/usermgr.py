@@ -227,8 +227,8 @@ def _set_protocols(conn, uid, row, protocols, password):
     for p in want - set(have):
         if p not in PROTOCOLS or not adapter_for(p).installed():
             raise ValueError("protocol '%s' unavailable" % p)
-        if p in ("ssh", "zivpn") and not password:
-            raise ValueError("password is required when adding %s to an existing user" % p)
+        if p == "ssh" and not password:
+            raise ValueError("password is required when adding ssh to an existing user")
     touched = {}
     for p in want - set(have):
         ad = adapter_for(p)
