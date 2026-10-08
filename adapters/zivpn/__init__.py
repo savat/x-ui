@@ -11,7 +11,8 @@ This adapter is therefore config-driven. Before installing you must audit your c
   "exec_args":     "server -c /etc/zivpn/config.json",
   "listen_port":   5667,
   "obfs":          "zivpn",
-  "config_template": { ... }   # optional: full config JSON; "@PASSWORDS@" is replaced by the list of passwords
+  "config_template": { ... }   # optional: full config JSON; "@PASSWORDS@" is replaced by the list of
+                               # each user's chosen password (NOT a random secret)
 }
 
 The DEFAULT_TEMPLATE below follows the layout used by common community builds and MUST be verified
@@ -115,9 +116,15 @@ WantedBy=multi-user.target
         self.unmark_installed()
 
     # ---- rendering ---------------------------------------------------------------------------
+    @staticmethod
+    def _pw(account):
+        """ZIVPN password = the password the admin chose for the user (falls back to the
+        auto-generated secret for accounts created before this behaviour)."""
+        return (account.get("config") or {}).get("password") or account["secret"]
+
     def build_config(self, accounts, s):
         tpl = s.get("config_template") or DEFAULT_TEMPLATE
-        pw = [a["secret"] for a in accounts]
+        pw = [self._pw(a) for a in accounts]
 
         def sub(v):
             if isinstance(v, str):
@@ -168,7 +175,7 @@ WantedBy=multi-user.target
             self._render()
 
     def create_user(self, user, account):
-        return {}
+        return {"password": user["password"]} if user.get("password") else {}
 
     def delete_user(self, user, account):
         pass
@@ -184,7 +191,7 @@ WantedBy=multi-user.target
         s = self._settings()
         return {"links": [], "files": [], "info": {
             "server": hostinfo["host"], "port": s["listen_port"], "obfs": s["obfs"],
-            "password": account["secret"], "note": "enter these in the ZIVPN client app"}}
+            "password": self._pw(account), "note": "enter these in the ZIVPN client app"}}
 
     def info(self):
         try:

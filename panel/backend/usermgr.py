@@ -197,7 +197,7 @@ def reset_password(conn, uid, password):
     conn.commit()
     row = get_user(conn, uid)
     if row["status"] == "active":
-        _provision(conn, uid, password)    # SSH needs the plaintext once, for chpasswd; it is never stored
+        _provision(conn, uid, password)    # SSH: chpasswd once; ZIVPN: stored in the account config (shown to the user)
 
 
 def update(conn, uid, data):
