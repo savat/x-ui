@@ -176,64 +176,152 @@ def _add_user(conn):
         print(_dim("  (แสดงข้อมูลเชื่อมต่อไม่ได้: %s)" % exc))
 
 
+def _list_admins(conn):
+    return list(conn.execute("SELECT id, username, role FROM admins ORDER BY id"))
+
+
+def _manage_admin(conn):
+    while True:
+        rows = _list_admins(conn)
+        print(_title("ผู้ดูแลระบบ (Panel admin):"))
+        if rows:
+            print("  %-4s %-22s %s" % ("ID", "ชื่อผู้ใช้", "สิทธิ์"))
+            for r in rows:
+                print("  %-4s %-22s %s" % (r["id"], r["username"], r["role"]))
+        else:
+            print(_dim("  (ยังไม่มีผู้ดูแลระบบ - กด [a] เพื่อเพิ่มได้เลย)"))
+        print("  [a] เพิ่ม/แก้ไขผู้ดูแล   [d] ลบผู้ดูแล   [Enter] กลับ")
+        act = input(_title("เลือก > ")).strip().lower()
+        if not act:
+            return
+        if act == "a":
+            username = _ask("ชื่อผู้ใช้ผู้ดูแล")
+            if not username:
+                print(_bad("ต้องระบุชื่อผู้ใช้"))
+                continue
+            pw = getpass.getpass("รหัสผ่าน (ขั้นต่ำ 10 ตัว): ")
+            try:
+                security.validate_password(pw, min_len=10)
+            except ValueError as exc:
+                print(_bad(str(exc)))
+                continue
+            role = _ask("สิทธิ์ (superadmin/admin/support)", "superadmin")
+            if role not in ("superadmin", "admin", "support"):
+                print(_bad("สิทธิ์ไม่ถูกต้อง"))
+                continue
+            if conn.execute("SELECT 1 FROM admins WHERE username=?", (username,)).fetchone():
+                conn.execute("UPDATE admins SET password_hash=?, role=?, failed_attempts=0, locked_until=NULL WHERE username=?",
+                             (security.hash_password(pw), role, username))
+                db.audit(conn, "admin.update", username)
+                print(_ok("อัปเดตผู้ดูแล '%s' แล้ว" % username))
+            else:
+                conn.execute("INSERT INTO admins(username, password_hash, role, created_at) VALUES(?,?,?,?)",
+                             (username, security.hash_password(pw), role, db.now_iso()))
+                db.audit(conn, "admin.create", username)
+                print(_ok("เพิ่มผู้ดูแล '%s' แล้ว" % username))
+            conn.commit()
+        elif act == "d":
+            username = _ask("ชื่อผู้ใช้ผู้ดูแลที่จะลบ")
+            if not username:
+                continue
+            total = conn.execute("SELECT COUNT(*) AS c FROM admins").fetchone()["c"]
+            if total <= 1:
+                print(_bad("ลบไม่ได้: ต้องเหลือผู้ดูแลอย่างน้อย 1 คน"))
+                continue
+            cur = conn.execute("DELETE FROM admins WHERE username=?", (username,))
+            conn.commit()
+            if cur.rowcount:
+                db.audit(conn, "admin.delete", username)
+                print(_ok("ลบผู้ดูแล '%s' แล้ว" % username))
+            else:
+                print(_bad("ไม่พบผู้ดูแล '%s'" % username))
+        else:
+            print(_bad("ไม่รู้จักตัวเลือก: %s" % act))
+
+
+def _reset_password(conn):
+    uid = int(_ask("รหัสผู้ใช้ (ID)"))
+    pw = getpass.getpass("รหัสผ่านใหม่: ")
+    usermgr.reset_password(conn, uid, pw)
+    print(_ok("รีเซ็ตรหัสผู้ใช้ id %d แล้ว" % uid))
+
+
+def _show_services():
+    for s in servicemgr.list_services():
+        state = _ok(s["state"]) if s["state"] == "RUNNING" else _dim(s["state"])
+        print("  %-26s %s" % (s["name"], state))
+
+
+def _health_report():
+    bad = 0
+    for item in health.run_all():
+        print("  [%s] %s" % (_ok("OK") if item["ok"] else _bad("FAIL"), item["component"]))
+        for ch in item["checks"]:
+            if not ch["ok"]:
+                bad += 1
+                print("        - %s %s" % (ch["name"], ch["msg"]))
+    print(_ok("สุขภาพระบบปกติ") if not bad else _bad("พบปัญหา %d รายการ" % bad))
+
+
+_MENU = """
+  ── ผู้ใช้ ─────────────────────────────
+   1) รายการผู้ใช้           2) เพิ่มผู้ใช้ใหม่
+   3) รีเซ็ตรหัสผู้ใช้       4) ต่ออายุผู้ใช้
+   5) เปิด/ปิดใช้งาน        6) ลบผู้ใช้
+  ── ระบบ ──────────────────────────────
+   7) จัดการผู้ดูแลระบบ
+   8) สถานะบริการ           9) รีสตาร์ทบริการ
+  10) ตรวจสุขภาพระบบ       11) สำรองข้อมูล
+  ─────────────────────────────────────
+   0) ออก
+"""
+
+
 def menu():
     conn = db.init_db()
     while True:
         host = db.get_setting(conn, "host", "") or "?"
+        admins = _list_admins(conn)
         print()
-        print(_title("╔════════════════════════════════════════════╗"))
-        print(_title("║      Unified VPN Panel  -  เมนูจัดการ      ║"))
-        print(_title("╚════════════════════════════════════════════╝"))
-        print(_dim("  server: %s" % host))
-        print("  1) แสดงรายการผู้ใช้")
-        print("  2) เพิ่มผู้ใช้ใหม่")
-        print("  3) ลบผู้ใช้")
-        print("  4) ต่ออายุผู้ใช้")
-        print("  5) เปิด/ปิดใช้งานผู้ใช้")
-        print("  6) สถานะบริการ")
-        print("  7) รีสตาร์ทบริการ")
-        print("  8) ตรวจสุขภาพระบบ")
-        print("  9) สํารองข้อมูล")
-        print("  0) ออก")
-        c = input(_title("เลือกเมนู > ")).strip()
+        print(_title("  ╔══════════════════════════════════════"))
+        print(_title("  ║  Unified VPN Panel  -  เมนูจัดการ"))
+        print(_title("  ╚══════════════════════════════════════"))
+        print(_dim("   server: %s%s" % (host, "" if admins else "   (ยังไม่มีผู้ดูแลระบบ)")))
+        print(_MENU)
+        c = input(_title("  เลือกเมนู > ")).strip()
         try:
             if c in ("1", ""):
                 _print_users(conn)
             elif c == "2":
                 _add_user(conn)
             elif c == "3":
-                uid = int(_ask("รหัสผู้ใช้ (ID)"))
-                if _ask("ยืนยันลบ? พิมพ์ yes") == "yes":
-                    usermgr.delete(conn, uid)
-                    print(_ok("ลบผู้ใช้ id %d แล้ว" % uid))
+                _reset_password(conn)
             elif c == "4":
                 uid = int(_ask("รหัสผู้ใช้ (ID)"))
                 usermgr.renew(conn, uid, _ask("จำนวนวัน", "30"))
                 print(_ok("ต่ออายุผู้ใช้ id %d แล้ว" % uid))
             elif c == "5":
                 uid = int(_ask("รหัสผู้ใช้ (ID)"))
-                act = _ask("ทําอะไร (ปิด=disable / เปิด=enable)", "disable")
+                act = _ask("ทำอะไร (ปิด=disable / เปิด=enable)", "disable")
                 usermgr.set_status(conn, uid, "active" if act in ("enable", "เปิด", "1") else "disabled")
                 print(_ok("อัปเดตสถานะผู้ใช้ id %d แล้ว" % uid))
             elif c == "6":
-                for s in servicemgr.list_services():
-                    state = _ok(s["state"]) if s["state"] == "RUNNING" else _dim(s["state"])
-                    print("  %-24s %s" % (s["name"], state))
+                uid = int(_ask("รหัสผู้ใช้ (ID)"))
+                if _ask("ยืนยันลบ? พิมพ์ yes") == "yes":
+                    usermgr.delete(conn, uid)
+                    print(_ok("ลบผู้ใช้ id %d แล้ว" % uid))
             elif c == "7":
+                _manage_admin(conn)
+            elif c == "8":
+                _show_services()
+            elif c == "9":
                 name = _ask("ชื่อบริการ")
                 print(_ok("สถานะ: %s" % servicemgr.control("restart", name)))
-            elif c == "8":
-                bad = 0
-                for item in health.run_all():
-                    print("  [%s] %s" % (_ok("OK") if item["ok"] else _bad("FAIL"), item["component"]))
-                    for ch in item["checks"]:
-                        if not ch["ok"]:
-                            bad += 1
-                            print("        - %s %s" % (ch["name"], ch["msg"]))
-                print(_ok("สุขภาพระบบปกติ") if not bad else _bad("พบปัญหา %d รายการ" % bad))
-            elif c == "9":
+            elif c == "10":
+                _health_report()
+            elif c == "11":
                 from backend import backup
-                print(_ok("สํารองข้อมูลแล้ว: %s" % backup.create()))
+                print(_ok("สำรองข้อมูลแล้ว: %s" % backup.create()))
             elif c == "0":
                 print(_dim("ออกจากเมนู"))
                 return

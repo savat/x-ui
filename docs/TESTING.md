@@ -4,7 +4,8 @@ Automated (no root needed): `PYTHONPATH=.:panel python3 tests/smoke_test.py`
 
 Manual on a fresh Ubuntu VPS:
 - [ ] `bash install.sh` finishes; `unified-vpn health` all `[OK]`
-- [ ] Panel opens on https; admin login works; wrong password x5 locks the account
+- [ ] Protocol choice works for both "เลือกทั้งหมด" and "เลือกเอง" (numbers/names)
+- [ ] Installing with no admin, then `m` → `7) จัดการผู้ดูแลระบบ` creates one; login works; wrong password x5 locks the account
 - [ ] Create a user with each protocol; delete; disable; enable; renew
 - [ ] SSH: direct, `/ssh-ws` on :80, `/ssh-ws` over TLS :443 (`ssh -o ProxyCommand=...` or an injector app)
 - [ ] OpenVPN: download .ovpn (UDP and TCP), connect, browse the internet (NAT works)

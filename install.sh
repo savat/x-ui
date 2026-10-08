@@ -33,22 +33,76 @@ ok "Internet reachable"
 ask UVPN_DOMAIN "Panel domain (blank = use server IP with a self-signed certificate)" ""
 if [ -n "$UVPN_DOMAIN" ]; then ask UVPN_EMAIL "Email for Let's Encrypt (optional)" ""; fi
 ask UVPN_PANEL_PORT "Panel internal port (127.0.0.1 only)" "8080"
-ask UVPN_ADMIN_USER "Admin username" "superadmin"
-ask_secret UVPN_ADMIN_PASS "Admin password (min 10 chars)"
-[ "${#UVPN_ADMIN_PASS}" -ge 10 ] || die "Admin password must be at least 10 characters"
-if [ "$UVPN_ADMIN_USER" = admin ] && [ "$UVPN_ADMIN_PASS" = admin ]; then die "admin/admin is not allowed"; fi
+
+# Admin account is OPTIONAL at install time - you can create/edit it any time later
+# from the 'm' menu ("จัดการผู้ดูแลระบบ"). Skip with an empty username.
+if [ -z "${UVPN_ADMIN_USER:-}" ] && [ "${UVPN_NONINTERACTIVE:-0}" != 1 ] && [ -t 0 ]; then
+  if confirm "ตั้งชื่อผู้ใช้/รหัสผ่านผู้ดูแลระบบ (Panel admin) ตอนนี้เลยไหม? (ไม่ = ตั้งทีหลังด้วยคำสั่ง m)" y; then
+    ask UVPN_ADMIN_USER "Admin username" "superadmin"
+  fi
+fi
+if [ -n "${UVPN_ADMIN_USER:-}" ]; then
+  ask_secret UVPN_ADMIN_PASS "Admin password (min 10 chars)"
+  [ "${#UVPN_ADMIN_PASS}" -ge 10 ] || die "Admin password must be at least 10 characters"
+  [ "$UVPN_ADMIN_USER" = admin ] && [ "$UVPN_ADMIN_PASS" = admin ] && die "admin/admin is not allowed"
+fi
+
+# ---- protocol selection: เลือกทั้งหมด / เลือกเอง -----------------------------------------
 if [ -z "${UVPN_PROTOCOLS:-}" ]; then
   UVPN_PROTOCOLS=""
-  for p in openvpn ssh xray wireguard hysteria2 zivpn badvpn; do
-    if [ "$p" = zivpn ] && [ ! -f "$UVPN_HOME/config/zivpn.json" ]; then
-      log "  skipping zivpn - it needs $UVPN_HOME/config/zivpn.json first (audit your upstream, see docs/SOURCE_AUDIT.md)"
-      continue
+  _avail=(openvpn ssh xray wireguard hysteria2 badvpn)
+  [ -f "$UVPN_HOME/config/zivpn.json" ] && _avail+=(zivpn)
+  if [ "${UVPN_NONINTERACTIVE:-0}" = 1 ] || [ ! -t 0 ]; then
+    for p in "${_avail[@]}"; do
+      [ "$p" = badvpn ] && continue                     # source build: opt-in only when non-interactive
+      UVPN_PROTOCOLS="$UVPN_PROTOCOLS $p"
+    done
+  else
+    echo
+    echo "  ── เลือกโปรโตคอลที่จะติดตั้ง ──"
+    echo "    1) เลือกทั้งหมด"
+    echo "    2) เลือกเอง"
+    read -r -p "  เลือก [1]: " _psel || true
+    if [ "${_psel:-1}" = 2 ]; then
+      echo
+      echo "  โปรโตคอลที่ติดตั้งได้:"
+      _i=0
+      for p in "${_avail[@]}"; do
+        _i=$((_i + 1))
+        _note=""; [ "$p" = badvpn ] && _note="   (build จากซอร์ส ใช้เวลาสักครู่)"
+        echo "    $_i) $p$_note"
+      done
+      echo "  พิมพ์หมายเลขคั่นด้วย , (หรือ a = ทั้งหมด, Enter = ทั้งหมด)"
+      read -r -p "  เลือก: " _pans || true
+      if [ "$_pans" = a ] || [ "$_pans" = all ] || [ -z "$_pans" ]; then
+        UVPN_PROTOCOLS="${_avail[*]}"
+      else
+        IFS=', ' read -r -a _toks <<<"$_pans"
+        for t in "${_toks[@]}"; do
+          [ -n "$t" ] || continue
+          _pick=""
+          case "$t" in
+            ''|*[!0-9]*) _pick="$t" ;;                    # a protocol name
+            *) [ "$t" -ge 1 ] && [ "$t" -le "${#_avail[@]}" ] && _pick="${_avail[$((t - 1))]}" ;;
+          esac
+          if [ -n "$_pick" ]; then
+            _known=0
+            for ap in "${_avail[@]}"; do [ "$ap" = "$_pick" ] && { _known=1; break; }; done
+            if [ "$_known" = 1 ]; then UVPN_PROTOCOLS="$UVPN_PROTOCOLS $_pick"
+            else warn "ข้ามโปรโตคอลที่ไม่รู้จัก: $t"; fi
+          else
+            warn "ข้ามโปรโตคอลที่ไม่รู้จัก: $t"
+          fi
+        done
+        # de-duplicate while keeping order
+        UVPN_PROTOCOLS="$(printf '%s\n' $UVPN_PROTOCOLS | awk '!seen[$0]++' | tr '\n' ' ')"
+      fi
+    else
+      UVPN_PROTOCOLS="${_avail[*]}"
     fi
-    def=y; [ "$p" = badvpn ] && def=n     # badvpn builds from source (slower); zivpn only reaches here when already configured
-    if [ "${UVPN_NONINTERACTIVE:-0}" = 1 ] || [ ! -t 0 ]; then [ "$def" = y ] && UVPN_PROTOCOLS="$UVPN_PROTOCOLS $p"
-    else confirm "Install $p?" "$def" && UVPN_PROTOCOLS="$UVPN_PROTOCOLS $p"; fi
-  done
+  fi
 fi
+case " ${UVPN_PROTOCOLS:-} " in *" badvpn "*) warn "เลือก badvpn: จะ build จากซอร์ส อาจใช้เวลาหลายนาที" ;; esac
 log "Protocols: ${UVPN_PROTOCOLS:-none}"
 
 # ---------------------------------------------------------------- 2b. stop a previous install of *ours*
@@ -160,12 +214,16 @@ HOST="${UVPN_DOMAIN:-$PUBLIC_IP}"
 log "  public IP: ${PUBLIC_IP:-unknown}  host: $HOST"
 
 # ---------------------------------------------------------------- 7. database + admin
-log "Initialising database and admin account ..."
+log "Initialising database ..."
 unified-vpn init-db
 unified-vpn set-setting host "$HOST"
 unified-vpn set-setting public_ip "${PUBLIC_IP:-}"
-UVPN_ADMIN_PASS="$UVPN_ADMIN_PASS" unified-vpn create-admin --username "$UVPN_ADMIN_USER"
-ok "Database and admin account ready"
+if [ -n "${UVPN_ADMIN_USER:-}" ]; then
+  UVPN_ADMIN_PASS="$UVPN_ADMIN_PASS" unified-vpn create-admin --username "$UVPN_ADMIN_USER"
+  ok "Database and admin account ready"
+else
+  ok "Database ready (ยังไม่มีผู้ดูแลระบบ - พิมพ์ m แล้วเลือก 'จัดการผู้ดูแลระบบ')"
+fi
 
 # ---------------------------------------------------------------- 8. nginx base config BEFORE protocols (they drop snippets in)
 rm -f /etc/nginx/sites-enabled/default      # only the symlink; the original stays in sites-available
@@ -242,7 +300,11 @@ echo
 ok "Installation finished"
 if [ -n "$UVPN_DOMAIN" ] && [ "$SELF" = 0 ]; then URL="https://$UVPN_DOMAIN"; else URL="https://$HOST (self-signed certificate: your browser will warn)"; fi
 echo "  Panel URL : $URL"
-echo "  Admin user: $UVPN_ADMIN_USER"
+if [ -n "${UVPN_ADMIN_USER:-}" ]; then
+  echo "  Admin     : $UVPN_ADMIN_USER   (แก้ไขได้ตลอดด้วยเมนู m)"
+else
+  echo "  Admin     : ยังไม่ได้ตั้งค่า - พิมพ์ m แล้วเลือก 'จัดการผู้ดูแลระบบ'"
+fi
 echo "  CLI       : m   (หรือ unified-vpn)  - เมนูภาษาไทย"
 echo "  Backup key: $UVPN_HOME/config/backup.key   <-- copy it somewhere safe, backups cannot be restored without it"
 if [ ! -f "$UVPN_HOME/config/zivpn.json" ]; then

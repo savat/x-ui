@@ -11,8 +11,8 @@ git clone https://github.com/savat/x-ui.git unified-vpn-panel && cd unified-vpn-
 bash install.sh
 ```
 
-ตัวติดตั้งจะถาม: โดเมน (เว้นว่าง = ใช้ IP + self-signed), พอร์ตภายใน Panel, admin user/password (≥10 ตัว, ห้าม admin/admin), และ protocol ที่ต้องการ
-แบบ non-interactive: `UVPN_NONINTERACTIVE=1 UVPN_DOMAIN=panel.example.com UVPN_ADMIN_USER=boss UVPN_ADMIN_PASS=... UVPN_PROTOCOLS="openvpn ssh xray" UVPN_ASSUME_YES=1 bash install.sh`
+ตัวติดตั้งจะถาม: โดเมน (เว้นว่าง = ใช้ IP + self-signed), พอร์ตภายใน Panel, จะตั้ง admin ตอนนี้หรือไม่ (เว้นว่าง/เลือกไม่ = ไปตั้งทีหลังได้ตลอดด้วยเมนู `m`), และเลือก protocol แบบ **เลือกทั้งหมด** หรือ **เลือกเอง** (เลือกเป็นหมายเลขได้)
+แบบ non-interactive: `UVPN_NONINTERACTIVE=1 UVPN_DOMAIN=panel.example.com UVPN_ADMIN_USER=boss UVPN_ADMIN_PASS=... UVPN_PROTOCOLS="openvpn ssh xray" UVPN_ASSUME_YES=1 bash install.sh` (ถ้าไม่ตั้ง `UVPN_ADMIN_USER`/`UVPN_ADMIN_PASS` ระบบจะข้าม admin แล้วไปตั้งทีหลังผ่านเมนู)
 
 **สำคัญ:** เก็บไฟล์ `/opt/unified-vpn/config/backup.key` ไว้ที่ปลอดภัย — backup เข้ารหัสด้วยคีย์นี้ ถ้าไม่มีจะ restore ไม่ได้
 
@@ -22,6 +22,7 @@ bash install.sh
 |---|---|
 | Web Panel | `https://<domain หรือ IP>` |
 | CLI เมนู | `m` (หรือ `unified-vpn`) — เมนูภาษาไทย |
+| จัดการผู้ดูแลระบบ | เมนู `m` → `7) จัดการผู้ดูแลระบบ` (เพิ่ม/แก้ไข/ลบ ได้ตลอด) หรือ `unified-vpn create-admin --username NAME` |
 | ตรวจสุขภาพ | `unified-vpn health` หรือ `scripts/health-check.sh` |
 | ติดตั้ง protocol เพิ่ม | `unified-vpn adapter-install xray` |
 | Backup / Restore | หน้า Backups ใน Panel หรือ `scripts/backup.sh create|restore FILE` |
