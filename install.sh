@@ -44,7 +44,7 @@ if [ -z "${UVPN_PROTOCOLS:-}" ]; then
       log "  skipping zivpn - it needs $UVPN_HOME/config/zivpn.json first (audit your upstream, see docs/SOURCE_AUDIT.md)"
       continue
     fi
-    def=y; [ "$p" = zivpn ] && def=n; [ "$p" = badvpn ] && def=n     # ZIVPN needs an audited upstream first (see docs/SOURCE_AUDIT.md)
+    def=y; [ "$p" = badvpn ] && def=n     # badvpn builds from source (slower); zivpn only reaches here when already configured
     if [ "${UVPN_NONINTERACTIVE:-0}" = 1 ] || [ ! -t 0 ]; then [ "$def" = y ] && UVPN_PROTOCOLS="$UVPN_PROTOCOLS $p"
     else confirm "Install $p?" "$def" && UVPN_PROTOCOLS="$UVPN_PROTOCOLS $p"; fi
   done
@@ -243,4 +243,7 @@ echo "  Panel URL : $URL"
 echo "  Admin user: $UVPN_ADMIN_USER"
 echo "  CLI       : unified-vpn   (interactive menu)"
 echo "  Backup key: $UVPN_HOME/config/backup.key   <-- copy it somewhere safe, backups cannot be restored without it"
+if [ ! -f "$UVPN_HOME/config/zivpn.json" ]; then
+  echo "  ZIVPN     : optional (UDP) - enable later with: bash scripts/setup-zivpn.sh"
+fi
 [ "${#FAILED[@]}" -eq 0 ] || warn "Protocols that failed to install: ${FAILED[*]}  (ZIVPN needs $UVPN_HOME/config/zivpn.json first - docs/SOURCE_AUDIT.md)"
