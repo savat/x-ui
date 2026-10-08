@@ -26,6 +26,7 @@ esac
 command -v unified-vpn >/dev/null 2>&1 || { echo "setup-zivpn: run install.sh first (unified-vpn CLI not found)" >&2; exit 1; }
 
 mkdir -p "$(dirname "$CONF")"
+OBFS='hu``hqb`c'
 cat >"$CONF" <<EOF
 {
   "binary_url":   "$BASE/udp-zivpn-linux-$A",
@@ -33,7 +34,7 @@ cat >"$CONF" <<EOF
   "binary_path":  "/usr/local/bin/zivpn",
   "exec_args":    "server -c /etc/zivpn/config.json",
   "listen_port":  5667,
-  "obfs":         "zivpn"
+  "obfs":         "$OBFS"
 }
 EOF
 chmod 600 "$CONF"

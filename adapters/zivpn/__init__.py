@@ -10,7 +10,7 @@ This adapter is therefore config-driven. Before installing you must audit your c
   "binary_path":   "/usr/local/bin/zivpn",
   "exec_args":     "server -c /etc/zivpn/config.json",
   "listen_port":   5667,
-  "obfs":          "zivpn",
+  "obfs":          "hu``hqb`c",
   "config_template": { ... }   # optional: full config JSON; "@PASSWORDS@" is replaced by the list of
                                # each user's chosen password (NOT a random secret)
 }
@@ -55,7 +55,7 @@ class ZivpnAdapter(Adapter):
         s.setdefault("binary_path", "/usr/local/bin/zivpn")
         s.setdefault("exec_args", "server -c %s/zivpn/config.json" % config.ETC)
         s.setdefault("listen_port", 5667)
-        s.setdefault("obfs", "zivpn")
+        s.setdefault("obfs", "hu``hqb`c")
         return s
 
     @property
