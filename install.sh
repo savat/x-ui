@@ -49,18 +49,23 @@ log "Protocols: ${UVPN_PROTOCOLS:-none}"
 
 # ---------------------------------------------------------------- 3. port check (never kills anything)
 log "Checking ports ..."
+show_owner() { local o; o="$(port_owner "$1")"; printf '%s' "${o:-unknown - find it with: ss -lntup | grep ':$1 '}"; }
 bad=0
 for spec in tcp:80 tcp:443; do
   proto="${spec%%:*}"; port="${spec##*:}"
-  if port_in_use "$proto" "$port" && ! port_owner "$port" | grep nginx >/dev/null; then
-    err "$proto/$port is in use by: $(port_owner "$port")"; bad=1
+  if port_in_use "$proto" "$port"; then
+    if port_owner "$port" | grep nginx >/dev/null; then
+      log "  tcp/$port is held by nginx (this installer manages nginx) - OK"
+    else
+      err "$proto/$port is in use by: $(show_owner "$port")"; bad=1
+    fi
   fi
 done
-if port_in_use tcp "$UVPN_PANEL_PORT"; then err "tcp/$UVPN_PANEL_PORT already in use: $(port_owner "$UVPN_PANEL_PORT")"; bad=1; fi
-[[ " $UVPN_PROTOCOLS " == *" openvpn "* ]] && for pr in udp tcp; do port_in_use "$pr" 1194 && { err "$pr/1194 in use: $(port_owner 1194)"; bad=1; }; done
-[[ " $UVPN_PROTOCOLS " == *" xray "* ]] && port_in_use tcp 8443 && { err "tcp/8443 (REALITY) in use: $(port_owner 8443)"; bad=1; }
-[[ " $UVPN_PROTOCOLS " == *" wireguard "* ]] && port_in_use udp 51820 && { err "udp/51820 in use"; bad=1; }
-[[ " $UVPN_PROTOCOLS " == *" hysteria2 "* ]] && port_in_use udp 443 && { err "udp/443 (Hysteria2) in use"; bad=1; }
+if port_in_use tcp "$UVPN_PANEL_PORT"; then err "tcp/$UVPN_PANEL_PORT already in use by: $(show_owner "$UVPN_PANEL_PORT")"; bad=1; fi
+[[ " $UVPN_PROTOCOLS " == *" openvpn "* ]] && for pr in udp tcp; do port_in_use "$pr" 1194 && { err "$pr/1194 in use by: $(show_owner 1194)"; bad=1; }; done
+[[ " $UVPN_PROTOCOLS " == *" xray "* ]] && port_in_use tcp 8443 && { err "tcp/8443 (REALITY) in use by: $(show_owner 8443)"; bad=1; }
+[[ " $UVPN_PROTOCOLS " == *" wireguard "* ]] && port_in_use udp 51820 && { err "udp/51820 in use by: $(show_owner 51820)"; bad=1; }
+[[ " $UVPN_PROTOCOLS " == *" hysteria2 "* ]] && port_in_use udp 443 && { err "udp/443 (Hysteria2) in use by: $(show_owner 443)"; bad=1; }
 [ "$bad" -eq 0 ] || die "Free the ports above (or pick another panel port) and re-run. The installer never kills other processes."
 ok "Ports free"
 

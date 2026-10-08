@@ -45,14 +45,16 @@ confirm() {
 # port_in_use tcp|udp PORT
 # NOTE: consumers must read the whole stream (no `grep -q`/`head`/`awk ... exit`) so the
 # upstream `ss` never gets SIGPIPE, which `set -o pipefail` would surface as exit 141.
+# We match the whole line (not a fixed field) because `ss` inserts an extra "Netid"
+# column when both -t and -u are given, which shifts the column positions.
 port_in_use() {
   local flag="-lntH"; [ "$1" = udp ] && flag="-lnuH"
-  ss $flag 2>/dev/null | awk -v p="$2" '$4 ~ ("[:.]" p "$") {found=1} END {exit(found?0:1)}'
+  ss $flag 2>/dev/null | awk -v p="$2" '$0 ~ ("[:.]" p "([[:space:]]|$)") {found=1} END {exit(found?0:1)}'
 }
 
 port_owner() {
   ss -lntupH 2>/dev/null \
-    | awk -v p="$1" '!found && $4 ~ ("[:.]" p "$") {line=$0; found=1} END {if (found) print line}' \
+    | awk -v p="$1" '$0 ~ ("[:.]" p "([[:space:]]|$)") {if (line == "") line=$0} END {if (line != "") print line}' \
     | sed 's/.*users:/users:/'
 }
 
