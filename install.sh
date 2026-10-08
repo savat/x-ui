@@ -150,6 +150,8 @@ fi
 printf '#!/usr/bin/env bash\nexport PYTHONPATH=%s:%s/panel\nset -a; . %s/config/panel.env; set +a\nexec %s/venv/bin/python -m backend "$@"\n' \
   "$UVPN_HOME" "$UVPN_HOME" "$UVPN_HOME" "$UVPN_HOME" >/usr/local/bin/unified-vpn
 chmod 755 /usr/local/bin/unified-vpn
+ln -sf /usr/local/bin/unified-vpn /usr/local/bin/m
+chmod 755 /usr/local/bin/m
 
 log "Detecting public IP ..."
 PUBLIC_IP="$(public_ip || true)"
@@ -241,7 +243,7 @@ ok "Installation finished"
 if [ -n "$UVPN_DOMAIN" ] && [ "$SELF" = 0 ]; then URL="https://$UVPN_DOMAIN"; else URL="https://$HOST (self-signed certificate: your browser will warn)"; fi
 echo "  Panel URL : $URL"
 echo "  Admin user: $UVPN_ADMIN_USER"
-echo "  CLI       : unified-vpn   (interactive menu)"
+echo "  CLI       : m   (หรือ unified-vpn)  - เมนูภาษาไทย"
 echo "  Backup key: $UVPN_HOME/config/backup.key   <-- copy it somewhere safe, backups cannot be restored without it"
 if [ ! -f "$UVPN_HOME/config/zivpn.json" ]; then
   echo "  ZIVPN     : optional (UDP) - enable later with: bash scripts/setup-zivpn.sh"

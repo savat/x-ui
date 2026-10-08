@@ -21,7 +21,7 @@ bash install.sh
 | สิ่งที่ทำ | วิธี |
 |---|---|
 | Web Panel | `https://<domain หรือ IP>` |
-| CLI เมนู | `unified-vpn` |
+| CLI เมนู | `m` (หรือ `unified-vpn`) — เมนูภาษาไทย |
 | ตรวจสุขภาพ | `unified-vpn health` หรือ `scripts/health-check.sh` |
 | ติดตั้ง protocol เพิ่ม | `unified-vpn adapter-install xray` |
 | Backup / Restore | หน้า Backups ใน Panel หรือ `scripts/backup.sh create|restore FILE` |
