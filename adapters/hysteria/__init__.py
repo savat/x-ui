@@ -154,6 +154,15 @@ WantedBy=multi-user.target
         if not cert or not key:
             raise AdapterError("settings tls_cert/tls_key missing (installer sets them)")
         text = self.build_config(accounts, cert, key, masq)
+        unit = "unified-hysteria.service"
+        if not accounts:
+            # Hysteria refuses an empty auth.userpass, so there is nothing valid to run until the
+            # first account exists. Keep the unit installed but disabled and stopped - no boot
+            # auto-start and no crash loop (handles stale installs left looping by older code).
+            write_file(self.conf_path, text, 0o600)
+            if not config.DRY_RUN:
+                shell.run(["systemctl", "disable", "--now", unit])
+            return True
         try:
             if not force and open(self.conf_path).read() == text:
                 return False
@@ -161,12 +170,6 @@ WantedBy=multi-user.target
             pass
         write_file(self.conf_path, text, 0o600)
         if config.DRY_RUN:
-            return True
-        unit = "unified-hysteria.service"
-        if not accounts:
-            # Hysteria refuses an empty auth.userpass, so there is nothing valid to run until the
-            # first account exists. Keep the unit installed but disabled (no boot, no crash loop).
-            shell.run(["systemctl", "disable", "--now", unit])
             return True
         if restart:
             shell.run(["systemctl", "enable", "--now", unit], check=True)

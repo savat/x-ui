@@ -1,15 +1,14 @@
-"""Health checks: binary / config / port / service / recent errors for every installed component."""
-import re
+"""Health checks for every installed component.
 
+run_all() first calls sync() on each installed adapter so declarative components render their
+config from the live DB and reconcile stale runtime state (e.g. a Hysteria unit that older code
+left crash-looping on an empty userpass). Then it collects per-adapter checks. We deliberately do
+not grep application logs for errors - every public service logs constant connection-level noise
+(port scanners, dropped handshakes) that has nothing to do with health; the authoritative signals
+are binary/config validity, `systemctl is-active`, restart-loop counters and bound ports.
+"""
 from adapters import all_adapters
 from backend import config, servicemgr, shell
-
-# Only these systemd messages prove a service actually broke (crash loop, exit-code failure).
-# Grepping app logs for `err`-priority lines is useless: public servers get constant connection
-# noise (port scanners, dropped/rejected handshakes) that is logged at err but means nothing.
-_UNIT_FAILURE = re.compile(
-    r"Main process exited|Failed with result|Result: exit-code|start request repeated too quickly|"
-    r"Failed to start|Job for .* failed")
 
 
 def _core():
@@ -20,25 +19,21 @@ def _core():
     return res
 
 
-def _recent_errors(units):
-    n = 0
-    for u in units:
-        r = shell.run(["journalctl", "-u", u, "--since", "2 min ago", "--no-pager", "-q"])
-        n += len([l for l in r.out.splitlines() if _UNIT_FAILURE.search(l)])
-    return n
-
-
 def run_all():
     """Returns [{"component", "ok", "checks": [{"name","ok","msg"}]}]"""
     report = [{"component": "Panel/Nginx", "checks": _core()}]
     for ad in all_adapters().values():
         if not ad.installed():
             continue
-        checks = list(ad.health())
-        errs = _recent_errors(ad.services) if not config.DRY_RUN else 0
-        checks.append(("no service crashes (recent)", errs == 0, "%d failure lines" % errs if errs else ""))
-        report.append({"component": ad.label, "checks": checks})
+        try:
+            ad.sync()
+        except Exception as exc:                     # reconcile must never take health down
+            report.append({"component": ad.label,
+                           "checks": [{"name": "reconcile", "ok": False, "msg": str(exc)[-200:]}]})
+            continue
+        report.append({"component": ad.label, "checks": []})
+        for n, ok, m in ad.health():
+            report[-1]["checks"].append({"name": n, "ok": bool(ok), "msg": m})
     for item in report:
-        item["checks"] = [{"name": n, "ok": bool(ok), "msg": m} for n, ok, m in item["checks"]]
-        item["ok"] = all(c["ok"] for c in item["checks"])
+        item["ok"] = all(c["ok"] for c in item["checks"]) or not item["checks"]
     return report
