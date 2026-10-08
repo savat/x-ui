@@ -152,11 +152,19 @@ WantedBy=multi-user.target
             priv, pub = [base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=") for _ in range(2)]
         else:
             out = shell.run([self.binary, "x25519"], check=True).out
+            # Output labels changed across Xray versions:
+            #   old:  "Private key: ..."        "Public key: ..."
+            #   new:  "PrivateKey: ..."         "Password (PublicKey): ..."     "Hash32: ..."
             m1 = re.search(r"private\s*key\s*:\s*(\S+)", out, re.I)
-            m2 = re.search(r"(?:public\s*key|password)\s*:\s*(\S+)", out, re.I)   # newer Xray prints "Password" for the public key
-            if not (m1 and m2):
-                raise AdapterError("could not parse `xray x25519` output")
-            priv, pub = m1.group(1), m2.group(1)
+            m2 = re.search(r"(?:password(?:\s*\(\s*public\s*key\s*\))?|public\s*key)\s*:\s*(\S+)", out, re.I)
+            if m1 and m2:
+                priv, pub = m1.group(1), m2.group(1)
+            else:
+                # Last-resort fallback: the two (and only two, before Hash32) 32-byte base64url keys.
+                keys = re.findall(r"\b[A-Za-z0-9_-]{43}\b", out)
+                if len(keys) < 2:
+                    raise AdapterError("could not parse `xray x25519` output: %r" % out.strip()[:200])
+                priv, pub = keys[0], keys[1]
         write_file(self.reality_path, json.dumps({"private": priv, "public": pub, "short_id": secrets.token_hex(4)}), 0o600)
 
     def _reality(self, dest):
