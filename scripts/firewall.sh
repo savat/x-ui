@@ -22,7 +22,11 @@ case "$cmd" in
     ufw allow 80/tcp >/dev/null
     ufw allow 443/tcp >/dev/null
     for p in "$@"; do ufw allow "$p" >/dev/null; done
-    ufw status | grep "${SSH_PORT}/tcp" >/dev/null || die "SSH rule missing - refusing to enable firewall"
+    # While UFW is inactive, `ufw status` lists no rules; `ufw show added` shows the pending
+    # rules regardless, so check both before enabling (so we never lock ourselves out).
+    if ! { ufw show added 2>/dev/null; ufw status 2>/dev/null; } | grep "${SSH_PORT}/tcp" >/dev/null; then
+      die "SSH rule missing - refusing to enable firewall"
+    fi
     if ufw status | grep "Status: inactive" >/dev/null; then
       ufw default deny incoming >/dev/null
       ufw default allow outgoing >/dev/null
