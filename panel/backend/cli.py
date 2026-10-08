@@ -75,6 +75,21 @@ def _ask(prompt, default=""):
     return v or default
 
 
+def _ask_uid(conn, prompt="รหัสผู้ใช้ (ID หรือชื่อ)"):
+    """Accept either a numeric user id or a username and return the id."""
+    raw = _ask(prompt).strip()
+    if not raw:
+        raise ValueError("กรุณาระบุ ID หรือชื่อผู้ใช้")
+    if raw.isdigit():
+        if not conn.execute("SELECT 1 FROM users WHERE id=?", (int(raw),)).fetchone():
+            raise ValueError("ไม่พบผู้ใช้ id %s" % raw)
+        return int(raw)
+    row = conn.execute("SELECT id FROM users WHERE username=?", (raw,)).fetchone()
+    if not row:
+        raise ValueError("ไม่พบผู้ใช้ชื่อ '%s'" % raw)
+    return row["id"]
+
+
 _PROTO_ORDER = ("ssh", "openvpn", "vless", "vmess", "trojan", "reality", "hysteria2", "wireguard", "zivpn")
 _PROTO_TH = {"ssh": "SSH", "openvpn": "OpenVPN", "vless": "VLESS", "vmess": "VMess", "trojan": "Trojan",
              "reality": "VLESS+Reality", "hysteria2": "Hysteria 2", "wireguard": "WireGuard", "zivpn": "ZIVPN (UDP)"}
@@ -240,7 +255,7 @@ def _manage_admin(conn):
 
 
 def _reset_password(conn):
-    uid = int(_ask("รหัสผู้ใช้ (ID)"))
+    uid = _ask_uid(conn)
     pw = getpass.getpass("รหัสผ่านใหม่: ")
     usermgr.reset_password(conn, uid, pw)
     print(_ok("รีเซ็ตรหัสผู้ใช้ id %d แล้ว" % uid))
@@ -297,16 +312,16 @@ def menu():
             elif c == "3":
                 _reset_password(conn)
             elif c == "4":
-                uid = int(_ask("รหัสผู้ใช้ (ID)"))
+                uid = _ask_uid(conn)
                 usermgr.renew(conn, uid, _ask("จำนวนวัน", "30"))
                 print(_ok("ต่ออายุผู้ใช้ id %d แล้ว" % uid))
             elif c == "5":
-                uid = int(_ask("รหัสผู้ใช้ (ID)"))
+                uid = _ask_uid(conn)
                 act = _ask("ทำอะไร (ปิด=disable / เปิด=enable)", "disable")
                 usermgr.set_status(conn, uid, "active" if act in ("enable", "เปิด", "1") else "disabled")
                 print(_ok("อัปเดตสถานะผู้ใช้ id %d แล้ว" % uid))
             elif c == "6":
-                uid = int(_ask("รหัสผู้ใช้ (ID)"))
+                uid = _ask_uid(conn)
                 if _ask("ยืนยันลบ? พิมพ์ yes") == "yes":
                     usermgr.delete(conn, uid)
                     print(_ok("ลบผู้ใช้ id %d แล้ว" % uid))
