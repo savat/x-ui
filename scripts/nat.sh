@@ -3,7 +3,7 @@
 set -euo pipefail
 ACTION="${1:-up}"
 SUBNETS=("10.8.0.0/24" "10.9.0.0/24" "10.66.0.0/24")   # OpenVPN udp, OpenVPN tcp, WireGuard
-IFACE="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')"
+IFACE="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev" && !d){d=$(i+1)}} END {if (d) print d}')"
 [ -n "$IFACE" ] || { echo "cannot detect default interface" >&2; exit 1; }
 
 for net in "${SUBNETS[@]}"; do

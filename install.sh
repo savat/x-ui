@@ -52,7 +52,7 @@ log "Checking ports ..."
 bad=0
 for spec in tcp:80 tcp:443; do
   proto="${spec%%:*}"; port="${spec##*:}"
-  if port_in_use "$proto" "$port" && ! port_owner "$port" | grep -q nginx; then
+  if port_in_use "$proto" "$port" && ! port_owner "$port" | grep nginx >/dev/null; then
     err "$proto/$port is in use by: $(port_owner "$port")"; bad=1
   fi
 done

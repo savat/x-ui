@@ -22,8 +22,8 @@ case "$cmd" in
     ufw allow 80/tcp >/dev/null
     ufw allow 443/tcp >/dev/null
     for p in "$@"; do ufw allow "$p" >/dev/null; done
-    ufw status | grep -q "${SSH_PORT}/tcp" || die "SSH rule missing - refusing to enable firewall"
-    if ufw status | grep -q "Status: inactive"; then
+    ufw status | grep "${SSH_PORT}/tcp" >/dev/null || die "SSH rule missing - refusing to enable firewall"
+    if ufw status | grep "Status: inactive" >/dev/null; then
       ufw default deny incoming >/dev/null
       ufw default allow outgoing >/dev/null
       ufw --force enable >/dev/null

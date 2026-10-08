@@ -43,24 +43,31 @@ confirm() {
 }
 
 # port_in_use tcp|udp PORT
+# NOTE: consumers must read the whole stream (no `grep -q`/`head`/`awk ... exit`) so the
+# upstream `ss` never gets SIGPIPE, which `set -o pipefail` would surface as exit 141.
 port_in_use() {
   local flag="-lntH"; [ "$1" = udp ] && flag="-lnuH"
-  ss $flag 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$2\$"
+  ss $flag 2>/dev/null | awk -v p="$2" '$4 ~ ("[:.]" p "$") {found=1} END {exit(found?0:1)}'
 }
 
-port_owner() { ss -lntupH 2>/dev/null | grep -E "[:.]$1[[:space:]]" | head -1 | sed 's/.*users:/users:/'; }
+port_owner() {
+  ss -lntupH 2>/dev/null \
+    | awk -v p="$1" '!found && $4 ~ ("[:.]" p "$") {line=$0; found=1} END {if (found) print line}' \
+    | sed 's/.*users:/users:/'
+}
 
 detect_ssh_port() {
-  local p
-  p="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')"
+  local out p
+  out="$(sshd -T 2>/dev/null || true)"
+  p="$(awk '/^port /{print $2; exit}' <<<"$out")"
   echo "${p:-22}"
 }
 
 public_ip() {
   curl -4fsS --max-time 6 https://api.ipify.org 2>/dev/null \
-    || ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}'
+    || ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src" && !s){s=$(i+1)}} END {if (s) print s}'
 }
 
-ssh_service_name() { if systemctl list-unit-files ssh.service >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^ssh.service'; then echo ssh; else echo sshd; fi; }
+ssh_service_name() { if systemctl list-unit-files 2>/dev/null | grep -E '^ssh\.service' >/dev/null; then echo ssh; else echo sshd; fi; }
 
 unified_py() { PYTHONPATH="$UVPN_HOME:$UVPN_HOME/panel" "$UVPN_HOME/venv/bin/python" -m backend "$@"; }
