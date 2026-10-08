@@ -11,6 +11,7 @@ import platform
 import re
 import shutil
 import tempfile
+import time
 from urllib.parse import quote
 
 from backend import config, db, servicemgr, shell
@@ -97,7 +98,22 @@ WantedBy=multi-user.target
         self._render(force=True, restart=False)
         shell.run(["systemctl", "daemon-reload"], check=True)
         shell.run(["systemctl", "enable", "--now", "unified-hysteria.service"], check=True)
+        self._verify_listening()
         self.mark_installed({"version": version})
+
+    def _verify_listening(self, wait=15):
+        """Give the unit a moment to bind; a crash-loop unit can still report 'active'."""
+        if config.DRY_RUN:
+            return
+        for _ in range(wait):
+            if listening("udp", PORT):
+                return
+            time.sleep(1)
+        st = shell.run(["systemctl", "status", "unified-hysteria.service", "-n", "20", "--no-pager"])
+        lg = shell.run(["journalctl", "-u", "unified-hysteria.service", "-n", "40", "--no-pager", "-q"])
+        raise AdapterError(
+            "hysteria did not bind udp/%d within %ds.\n--- status ---\n%s\n--- journal ---\n%s"
+            % (PORT, wait, st.out.strip()[-1500:], lg.out.strip()[-3500:]))
 
     def uninstall(self):
         shell.run(["systemctl", "disable", "--now", "unified-hysteria.service"])
@@ -170,8 +186,11 @@ WantedBy=multi-user.target
         return {"port": "%d/udp" % PORT, "auth": "userpass"}
 
     def health(self):
+        nrestarts = 0 if config.DRY_RUN else int(shell.run(
+            ["systemctl", "show", "-p", "NRestarts", "--value", "unified-hysteria.service"]).out.strip() or 0)
         res = [("hysteria binary exists", os.path.exists(self.binary) or config.DRY_RUN, ""),
                ("hysteria config present", os.path.exists(self.conf_path), ""),
                ("hysteria service active", servicemgr.unit_state("unified-hysteria.service") in ("RUNNING", "UNKNOWN"), ""),
+               ("hysteria not crash-looping", nrestarts < 5, "%d restarts since start" % nrestarts if nrestarts else ""),
                ("udp/%d listening" % PORT, listening("udp", PORT), "")]
         return res

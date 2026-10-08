@@ -1,6 +1,16 @@
 """Health checks: binary / config / port / service / recent errors for every installed component."""
+import re
+
 from adapters import all_adapters
 from backend import config, servicemgr, shell
+
+# Connection-level noise every public server produces (port scanners, handshake failures, stray
+# clients). These are logged at err priority but do NOT mean the service is broken. Only count
+# lines that do NOT match, i.e. real service failures (config/startup crashes, bind errors, panics).
+_BENIGN = re.compile(
+    r"failed to (?:read|write)|try another one|no suitable inbound|handshake|reject|"
+    r"connection from|(?:read|write) tcp|i/o timeout|broken pipe|connection (?:reset|refused)|"
+    r"mux client connection|websocket|socks", re.I)
 
 
 def _core():
@@ -15,7 +25,7 @@ def _recent_errors(units):
     n = 0
     for u in units:
         r = shell.run(["journalctl", "-u", u, "-p", "err", "--since", "10 min ago", "--no-pager", "-q"])
-        n += len([l for l in r.out.splitlines() if l.strip()])
+        n += len([l for l in r.out.splitlines() if l.strip() and not _BENIGN.search(l)])
     return n
 
 
