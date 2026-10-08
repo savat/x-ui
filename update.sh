@@ -1,24 +1,35 @@
 #!/usr/bin/env bash
 # Update Unified VPN Panel with automatic backup and rollback.
 #   update.sh --from /path/to/extracted/release
+#   update.sh --git /path/to/git/checkout        # git pull --ff-only, then install from it
 #   update.sh --tarball URL --sha256 HEX
 # The new code is validated (python compile + shell syntax) BEFORE anything is replaced.
+# NOTE: the panel runs from the INSTALLED copy ($UVPN_HOME), not from a git clone. A plain
+# `git pull` in the clone changes nothing until you run this script (or install.sh).
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/scripts/lib.sh" 2>/dev/null || source "$UVPN_HOME/scripts/lib.sh"
 LOG_FILE=/var/log/unified-vpn-update.log
 need_root
 
-SRC=""; TARBALL=""; SHA=""
+SRC=""; TARBALL=""; SHA=""; GIT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --from) SRC="$2"; shift 2 ;;
+    --git) GIT="$2"; shift 2 ;;
     --tarball) TARBALL="$2"; shift 2 ;;
     --sha256) SHA="$2"; shift 2 ;;
     *) die "unknown option $1" ;;
   esac
 done
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+
+if [ -n "$GIT" ]; then
+  [ -d "$GIT/.git" ] || die "--git needs a git checkout (no .git in $GIT)"
+  log "Updating git checkout $GIT ..."
+  git -C "$GIT" pull --ff-only
+  SRC="$GIT"
+fi
 
 if [ -n "$TARBALL" ]; then
   [ -n "$SHA" ] || die "--sha256 is required with --tarball (no unverified downloads)"

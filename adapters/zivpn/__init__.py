@@ -91,7 +91,7 @@ class ZivpnAdapter(Adapter):
             raise AdapterError("zivpn.json needs binary_url and sha256 (no unverified binaries)")
         if not port_free("udp", s["listen_port"]):
             raise AdapterError("udp/%s already in use" % s["listen_port"])
-        apt_install("openssl", "curl")
+        apt_install("openssl", "curl", "iptables")
         if not config.DRY_RUN:
             tmp = s["binary_path"] + ".download"
             shell.run(["curl", "-fsSL", "-o", tmp, s["binary_url"]], timeout=300, check=True)
@@ -194,18 +194,37 @@ WantedBy=multi-user.target
             shell.run(["systemctl", "restart", "zivpn.service"], check=True)
         return True
 
+    def _ensure_fw(self, s):
+        """Open UDP in UFW when it is active. The DNAT rewrites the range to listen_port in
+        PREROUTING, so the filter stage sees the rewritten port - allow both the direct port and
+        the range, otherwise the service is unreachable even though it is listening."""
+        if config.DRY_RUN or not shutil.which("ufw"):
+            return
+        try:
+            status = shell.run(["ufw", "status"]).out or ""
+        except Exception:
+            return
+        if "Status: active" not in status:
+            return
+        shell.run(["ufw", "allow", "%s/udp" % s["listen_port"]])
+        prange = str(s.get("port_range") or "").strip()
+        if prange:
+            shell.run(["ufw", "allow", "%s/udp" % prange])
+
     def _ensure_nat(self, s):
         """Enable UDP port-range DNAT (6000:19999 -> listen_port) when port_range is set."""
         prange = str(s.get("port_range") or "").strip()
         path = os.path.join(config.SYSTEMD_DIR, NAT_UNIT)
         if not prange:
             self._remove_nat()
+            self._ensure_fw(s)
             return
         changed = write_file(path, _nat_unit_text(s["listen_port"], prange))
         if changed:
             shell.run(["systemctl", "daemon-reload"])
         if changed or servicemgr.unit_state(NAT_UNIT) != "RUNNING":
             shell.run(["systemctl", "enable", "--now", NAT_UNIT])
+        self._ensure_fw(s)
 
     def _remove_nat(self):
         path = os.path.join(config.SYSTEMD_DIR, NAT_UNIT)

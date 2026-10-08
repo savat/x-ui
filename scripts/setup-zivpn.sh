@@ -44,7 +44,9 @@ echo "wrote $CONF  (arch=$A, ${REL})"
 # The adapter downloads the pinned asset, verifies the SHA256 above, and only then installs.
 unified-vpn adapter-install zivpn
 
-# Allow the UDP port-hopping range (the adapter DNATs it to :5667).
+# Allow UDP. The DNAT rewrites the range to :5667 in PREROUTING, so the filter stage sees the
+# rewritten port 5667 - both the direct port AND the range must be allowed when UFW is active.
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep "Status: active" >/dev/null; then
+  ufw allow 5667/udp
   ufw allow 6000:19999/udp
 fi
