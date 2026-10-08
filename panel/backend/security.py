@@ -13,7 +13,7 @@ try:
 except Exception:  # pragma: no cover - fallback only if argon2-cffi is missing
     _ph = None
 
-USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{2,31}$")
+USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 RESERVED = {"root", "admin", "administrator", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail",
             "news", "uucp", "proxy", "www-data", "backup", "list", "irc", "nobody", "sshd", "ubuntu",
             "debian", "openvpn", "xray", "systemd", "uvpn", "nginx", "postgres", "mysql"}
@@ -43,7 +43,7 @@ def verify_password(stored, password):
 
 def validate_username(name):
     if not isinstance(name, str) or not USERNAME_RE.match(name):
-        raise ValueError("username must be 3-32 chars: a-z, 0-9, _ or -, starting with a letter")
+        raise ValueError("username must be 1-32 chars: a-z, 0-9, _ or -, starting with a letter")
     if name in RESERVED:
         raise ValueError("username is reserved")
     return name
