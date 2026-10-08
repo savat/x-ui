@@ -1,0 +1,20 @@
+[Unit]
+Description=Unified VPN Panel (API + web UI, loopback only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/opt/unified-vpn/config/panel.env
+Environment=PYTHONPATH=/opt/unified-vpn:/opt/unified-vpn/panel
+WorkingDirectory=/opt/unified-vpn
+# 1 worker + threads: login rate-limit state is in-process. Runs as root because adapters manage
+# users/services; it only listens on 127.0.0.1 behind nginx (see docs/ARCHITECTURE.md).
+ExecStart=/opt/unified-vpn/venv/bin/gunicorn --bind ${UVPN_BIND}:${UVPN_PORT} --workers 1 --threads 4 --timeout 120 "backend.app:create_app()"
+Restart=on-failure
+RestartSec=3
+PrivateTmp=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
