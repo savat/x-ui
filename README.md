@@ -7,7 +7,7 @@
 
 ```bash
 # บน VPS ใหม่ (Ubuntu 20.04/22.04/24.04, Debian 11/12) ด้วย root
-git clone <repo> unified-vpn-panel && cd unified-vpn-panel
+git clone https://github.com/savat/x-ui.git unified-vpn-panel && cd unified-vpn-panel
 bash install.sh
 ```
 
