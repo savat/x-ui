@@ -47,6 +47,22 @@ if [ -z "${UVPN_PROTOCOLS:-}" ]; then
 fi
 log "Protocols: ${UVPN_PROTOCOLS:-none}"
 
+# ---------------------------------------------------------------- 2b. stop a previous install of *ours*
+# Re-running the installer must not be blocked by the services it installed last time
+# (panel on the loopback port, OpenVPN 1194, WireGuard 51820, ...). We only touch our own units.
+if [ -f /etc/systemd/system/unified-panel.service ] || [ -f "$UVPN_HOME/config/panel.env" ] \
+   || [ -f /etc/openvpn/server/uvpn-udp.conf ] || [ -f /etc/wireguard/wg0.conf ]; then
+  log "Existing Unified VPN install detected - stopping its services so ports can be reused ..."
+  for u in unified-panel.service unified-ws-ssh.service unified-hysteria.service unified-badvpn.service \
+           unified-vpn-nat.service xray.service zivpn.service unified-expiry.timer unified-expiry.service \
+           openvpn-server@uvpn-udp.service openvpn-server@uvpn-tcp.service wg-quick@wg0.service; do
+    systemctl stop "$u" >/dev/null 2>&1 || true
+  done
+  pkill -f "$UVPN_HOME/venv/bin/gunicorn" >/dev/null 2>&1 || true   # leftover from an interrupted run
+  log "  previous services stopped (ports should be free now)"
+  sleep 1
+fi
+
 # ---------------------------------------------------------------- 3. port check (never kills anything)
 log "Checking ports ..."
 show_owner() { local o; o="$(port_owner "$1")"; printf '%s' "${o:-unknown - find it with: ss -lntup | grep ':$1 '}"; }
