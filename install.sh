@@ -67,10 +67,15 @@ ok "Ports free"
 # ---------------------------------------------------------------- 4. dependencies
 log "Installing base packages ..."
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y >>"$LOG_FILE" 2>&1
+log "  apt-get update ..."
+apt-get update -y 2>&1 | tee -a "$LOG_FILE"
+log "  apt-get install (curl wget git unzip tar jq openssl ca-certificates socat nginx sqlite3 cron iptables ufw python3 python3-venv python3-pip rsync) ..."
 apt-get install -y --no-install-recommends curl wget git unzip tar jq openssl ca-certificates socat nginx sqlite3 cron \
-  iptables ufw python3 python3-venv python3-pip rsync >>"$LOG_FILE" 2>&1
-[ -z "$UVPN_DOMAIN" ] || apt-get install -y --no-install-recommends certbot >>"$LOG_FILE" 2>&1
+  iptables ufw python3 python3-venv python3-pip rsync 2>&1 | tee -a "$LOG_FILE"
+if [ -n "$UVPN_DOMAIN" ]; then
+  log "  apt-get install certbot ..."
+  apt-get install -y --no-install-recommends certbot 2>&1 | tee -a "$LOG_FILE"
+fi
 ok "Packages installed"
 
 # ---------------------------------------------------------------- 5. firewall (warn + confirm inside)
@@ -90,19 +95,22 @@ fi
 # ---------------------------------------------------------------- 6. files, venv, config
 log "Installing files to $UVPN_HOME ..."
 mkdir -p "$UVPN_HOME"/{bin,config/installed,log,backups,scripts,adapters,panel,database} "$UVPN_DATA" /etc/unified-vpn/nginx.d /etc/unified-vpn/nginx-http.d
-rsync -a --delete --exclude '__pycache__' "$SRC_DIR/panel/" "$UVPN_HOME/panel/"
-rsync -a --delete --exclude '__pycache__' "$SRC_DIR/adapters/" "$UVPN_HOME/adapters/"
-rsync -a "$SRC_DIR/scripts/" "$UVPN_HOME/scripts/"
-rsync -a "$SRC_DIR/database/" "$UVPN_HOME/database/"
+log "  syncing panel/ adapters/ scripts/ database/ ..."
+rsync -av --delete --exclude '__pycache__' "$SRC_DIR/panel/" "$UVPN_HOME/panel/" 2>&1 | tee -a "$LOG_FILE"
+rsync -av --delete --exclude '__pycache__' "$SRC_DIR/adapters/" "$UVPN_HOME/adapters/" 2>&1 | tee -a "$LOG_FILE"
+rsync -av "$SRC_DIR/scripts/" "$UVPN_HOME/scripts/" 2>&1 | tee -a "$LOG_FILE"
+rsync -av "$SRC_DIR/database/" "$UVPN_HOME/database/" 2>&1 | tee -a "$LOG_FILE"
 cp "$SRC_DIR/update.sh" "$SRC_DIR/uninstall.sh" "$UVPN_HOME/"
 cp "$SRC_DIR/VERSION" "$UVPN_HOME/VERSION" 2>/dev/null || echo "dev" >"$UVPN_HOME/VERSION"
 chmod +x "$UVPN_HOME"/scripts/*.sh "$UVPN_HOME"/scripts/*.py "$UVPN_HOME"/update.sh "$UVPN_HOME"/uninstall.sh
 chmod 700 "$UVPN_HOME/config" "$UVPN_HOME/backups" "$UVPN_DATA"
 
-log "Creating Python virtualenv ..."
-python3 -m venv "$UVPN_HOME/venv"
-"$UVPN_HOME/venv/bin/pip" install --quiet --upgrade pip >>"$LOG_FILE" 2>&1
-"$UVPN_HOME/venv/bin/pip" install --quiet -r "$UVPN_HOME/panel/backend/requirements.txt" >>"$LOG_FILE" 2>&1
+log "Creating Python virtualenv at $UVPN_HOME/venv ..."
+python3 -m venv "$UVPN_HOME/venv" 2>&1 | tee -a "$LOG_FILE"
+log "  upgrading pip ..."
+"$UVPN_HOME/venv/bin/pip" install --upgrade pip 2>&1 | tee -a "$LOG_FILE"
+log "  installing Python requirements ..."
+"$UVPN_HOME/venv/bin/pip" install -r "$UVPN_HOME/panel/backend/requirements.txt" 2>&1 | tee -a "$LOG_FILE"
 ok "Python environment ready"
 
 if [ ! -f "$UVPN_HOME/config/panel.env" ]; then
@@ -118,11 +126,14 @@ printf '#!/usr/bin/env bash\nexport PYTHONPATH=%s:%s/panel\nset -a; . %s/config/
   "$UVPN_HOME" "$UVPN_HOME" "$UVPN_HOME" "$UVPN_HOME" >/usr/local/bin/unified-vpn
 chmod 755 /usr/local/bin/unified-vpn
 
+log "Detecting public IP ..."
 PUBLIC_IP="$(public_ip || true)"
 HOST="${UVPN_DOMAIN:-$PUBLIC_IP}"
 [ -n "$HOST" ] || die "Could not determine public IP; set UVPN_DOMAIN"
+log "  public IP: ${PUBLIC_IP:-unknown}  host: $HOST"
 
 # ---------------------------------------------------------------- 7. database + admin
+log "Initialising database and admin account ..."
 unified-vpn init-db
 unified-vpn set-setting host "$HOST"
 unified-vpn set-setting public_ip "${PUBLIC_IP:-}"
@@ -147,10 +158,14 @@ if [ -n "$UVPN_DOMAIN" ]; then
     -keyout /etc/unified-vpn/tls/self.key -out /etc/unified-vpn/tls/self.crt >/dev/null 2>&1
   chmod 600 /etc/unified-vpn/tls/self.key
   render_nginx /etc/unified-vpn/tls/self.crt /etc/unified-vpn/tls/self.key
-  nginx -t && systemctl enable --now nginx && systemctl reload nginx
+  log "  validating nginx config and starting nginx ..."
+  nginx -t 2>&1 | tee -a "$LOG_FILE"
+  systemctl enable --now nginx
+  systemctl reload nginx
   email_args=(--register-unsafely-without-email); [ -z "${UVPN_EMAIL:-}" ] || email_args=(-m "$UVPN_EMAIL")
+  log "  requesting Let's Encrypt certificate for $UVPN_DOMAIN (certbot) ..."
   if certbot certonly --webroot -w /var/www/html -d "$UVPN_DOMAIN" --non-interactive --agree-tos "${email_args[@]}" \
-       --deploy-hook "systemctl reload nginx" >>"$LOG_FILE" 2>&1; then
+       --deploy-hook "systemctl reload nginx" 2>&1 | tee -a "$LOG_FILE"; then
     CERT="/etc/letsencrypt/live/$UVPN_DOMAIN/fullchain.pem"; KEY="/etc/letsencrypt/live/$UVPN_DOMAIN/privkey.pem"; SELF=0
     ok "Let's Encrypt certificate issued (auto-renewal via certbot timer)"
   else
@@ -169,10 +184,12 @@ else
   render_nginx "$CERT" "$KEY" hsts
 fi
 unified-vpn set-setting tls_cert "$CERT"; unified-vpn set-setting tls_key "$KEY"      # used by Hysteria2
-nginx -t >>"$LOG_FILE" 2>&1 || die "nginx config test failed"
+log "Final nginx config test ..."
+nginx -t 2>&1 | tee -a "$LOG_FILE" || die "nginx config test failed"
 systemctl enable --now nginx; systemctl reload nginx
 
 # ---------------------------------------------------------------- 9. systemd (panel first so DB exists), then protocols
+log "Installing systemd units and starting the panel ..."
 cp "$SRC_DIR"/systemd/unified-*.service "$SRC_DIR"/systemd/unified-*.timer /etc/systemd/system/
 install -m 644 "$SRC_DIR/scripts/logrotate-unified-vpn" /etc/logrotate.d/unified-vpn
 systemctl daemon-reload
@@ -180,8 +197,8 @@ systemctl enable --now unified-panel.service unified-expiry.timer
 
 FAILED=()
 for p in $UVPN_PROTOCOLS; do
-  log "Installing protocol: $p"
-  if unified-vpn adapter-install "$p" >>"$LOG_FILE" 2>&1; then ok "$p installed"; else err "$p failed (see $LOG_FILE)"; FAILED+=("$p"); fi
+  log "Installing protocol: $p ..."
+  if unified-vpn adapter-install "$p" 2>&1 | tee -a "$LOG_FILE"; then ok "$p installed"; else err "$p failed (see $LOG_FILE)"; FAILED+=("$p"); fi
 done
 systemctl reload nginx || true
 
