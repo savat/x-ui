@@ -32,5 +32,7 @@ Rules: never `curl | bash` unknown scripts; download, read, hash, then run. GPL/
    `/opt/unified-vpn/config/zivpn.json` with the arch-appropriate URL and a pinned SHA256, then runs
    `unified-vpn adapter-install zivpn`. To use a different upstream, edit that file (URL + `sha256`
    are mandatory) and/or supply `config_template` (`@PASSWORDS@`, `@PORT@`, `@OBFS@`, `@ETC@`).
-3. Test auth, reconnect, expiry and removal on a spare VPS. The client connects on UDP `5667`
-   (upstream's optional 6000–19999 multi-port DNAT is not added; set port 5667 in the app).
+3. Test auth, reconnect, expiry and removal on a spare VPS. The client connects on UDP `5667`, and the
+   upstream's optional 6000–19999 multi-port DNAT is enabled by default (`port_range` in
+   `zivpn.json` → `unified-zivpn-nat.service` runs `scripts/zivpn-nat.sh`, which DNATs `6000:19999/udp`
+   → `:5667` and excludes WireGuard's 51820). Set `"port_range": ""` to disable it.

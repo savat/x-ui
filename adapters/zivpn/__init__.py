@@ -11,6 +11,7 @@ This adapter is therefore config-driven. Before installing you must audit your c
   "exec_args":     "server -c /etc/zivpn/config.json",
   "listen_port":   5667,
   "obfs":          "hu``hqb`c",
+  "port_range":    "6000:19999",   # optional: DNAT incoming UDP range -> listen_port ("" disables)
   "config_template": { ... }   # optional: full config JSON; "@PASSWORDS@" is replaced by the list of
                                # each user's chosen password (NOT a random secret)
 }
@@ -34,6 +35,26 @@ DEFAULT_TEMPLATE = {
     "auth": {"mode": "passwords", "config": "@PASSWORDS@"},
 }
 
+NAT_UNIT = "unified-zivpn-nat.service"
+
+
+def _nat_unit_text(port, prange):
+    return """[Unit]
+Description=Unified VPN - ZIVPN UDP port-range DNAT
+After=network-online.target
+Before=zivpn.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=ZIVPN_PORT=%s ZIVPN_RANGE=%s
+ExecStart=%s/zivpn-nat.sh up
+ExecStop=%s/zivpn-nat.sh down
+
+[Install]
+WantedBy=multi-user.target
+""" % (port, prange, config.SCRIPTS_DIR, config.SCRIPTS_DIR)
+
 
 class ZivpnAdapter(Adapter):
     name = "zivpn"
@@ -56,6 +77,7 @@ class ZivpnAdapter(Adapter):
         s.setdefault("exec_args", "server -c %s/zivpn/config.json" % config.ETC)
         s.setdefault("listen_port", 5667)
         s.setdefault("obfs", "hu``hqb`c")
+        s.setdefault("port_range", "6000:19999")
         return s
 
     @property
@@ -105,9 +127,11 @@ WantedBy=multi-user.target
         self._render(force=True, restart=False)
         shell.run(["systemctl", "daemon-reload"], check=True)
         shell.run(["systemctl", "enable", "--now", "zivpn.service"], check=True)
-        self.mark_installed({"port": s["listen_port"]})
+        self._ensure_nat(s)
+        self.mark_installed({"port": s["listen_port"], "port_range": s.get("port_range", "")})
 
     def uninstall(self):
+        self._remove_nat()
         shell.run(["systemctl", "disable", "--now", "zivpn.service"])
         p = os.path.join(config.SYSTEMD_DIR, "zivpn.service")
         if os.path.exists(p):
@@ -170,9 +194,30 @@ WantedBy=multi-user.target
             shell.run(["systemctl", "restart", "zivpn.service"], check=True)
         return True
 
+    def _ensure_nat(self, s):
+        """Enable UDP port-range DNAT (6000:19999 -> listen_port) when port_range is set."""
+        prange = str(s.get("port_range") or "").strip()
+        path = os.path.join(config.SYSTEMD_DIR, NAT_UNIT)
+        if not prange:
+            self._remove_nat()
+            return
+        changed = write_file(path, _nat_unit_text(s["listen_port"], prange))
+        if changed:
+            shell.run(["systemctl", "daemon-reload"])
+        if changed or servicemgr.unit_state(NAT_UNIT) != "RUNNING":
+            shell.run(["systemctl", "enable", "--now", NAT_UNIT])
+
+    def _remove_nat(self):
+        path = os.path.join(config.SYSTEMD_DIR, NAT_UNIT)
+        if os.path.exists(path):
+            shell.run(["systemctl", "disable", "--now", NAT_UNIT])
+            os.remove(path)
+            shell.run(["systemctl", "daemon-reload"])
+
     def sync(self):
         if self.installed():
             self._render()
+            self._ensure_nat(self._settings())
 
     def create_user(self, user, account):
         return {"password": user["password"]} if user.get("password") else {}
@@ -189,14 +234,16 @@ WantedBy=multi-user.target
 
     def share(self, user, account, hostinfo):
         s = self._settings()
-        return {"links": [], "files": [], "info": {
-            "server": hostinfo["host"], "port": s["listen_port"], "obfs": s["obfs"],
-            "password": self._pw(account), "note": "enter these in the ZIVPN client app"}}
+        info = {"server": hostinfo["host"], "port": s["listen_port"], "obfs": s["obfs"],
+                "password": self._pw(account), "note": "enter these in the ZIVPN client app"}
+        if s.get("port_range"):
+            info["port_range"] = s["port_range"]
+        return {"links": [], "files": [], "info": info}
 
     def info(self):
         try:
             s = self._settings()
-            return {"port": s["listen_port"], "obfs": s["obfs"]}
+            return {"port": s["listen_port"], "obfs": s["obfs"], "port_range": s.get("port_range", "")}
         except AdapterError:
             return {"configured": False}
 
@@ -214,4 +261,6 @@ WantedBy=multi-user.target
         res.append(("zivpn config valid JSON", ok, ""))
         res.append(("zivpn service active", servicemgr.unit_state("zivpn.service") in ("RUNNING", "UNKNOWN"), ""))
         res.append(("zivpn udp port listening", listening("udp", s["listen_port"]), ""))
+        if s.get("port_range"):
+            res.append(("zivpn port-range DNAT active", servicemgr.unit_state(NAT_UNIT) in ("RUNNING", "UNKNOWN"), ""))
         return res

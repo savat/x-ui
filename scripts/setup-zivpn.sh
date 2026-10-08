@@ -34,11 +34,17 @@ cat >"$CONF" <<EOF
   "binary_path":  "/usr/local/bin/zivpn",
   "exec_args":    "server -c /etc/zivpn/config.json",
   "listen_port":  5667,
-  "obfs":         "$OBFS"
+  "obfs":         "$OBFS",
+  "port_range":   "6000:19999"
 }
 EOF
 chmod 600 "$CONF"
 echo "wrote $CONF  (arch=$A, ${REL})"
 
 # The adapter downloads the pinned asset, verifies the SHA256 above, and only then installs.
-exec unified-vpn adapter-install zivpn
+unified-vpn adapter-install zivpn
+
+# Allow the UDP port-hopping range (the adapter DNATs it to :5667).
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep "Status: active" >/dev/null; then
+  ufw allow 6000:19999/udp
+fi
