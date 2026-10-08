@@ -40,6 +40,10 @@ if [ "$UVPN_ADMIN_USER" = admin ] && [ "$UVPN_ADMIN_PASS" = admin ]; then die "a
 if [ -z "${UVPN_PROTOCOLS:-}" ]; then
   UVPN_PROTOCOLS=""
   for p in openvpn ssh xray wireguard hysteria2 zivpn badvpn; do
+    if [ "$p" = zivpn ] && [ ! -f "$UVPN_HOME/config/zivpn.json" ]; then
+      log "  skipping zivpn - it needs $UVPN_HOME/config/zivpn.json first (audit your upstream, see docs/SOURCE_AUDIT.md)"
+      continue
+    fi
     def=y; [ "$p" = zivpn ] && def=n; [ "$p" = badvpn ] && def=n     # ZIVPN needs an audited upstream first (see docs/SOURCE_AUDIT.md)
     if [ "${UVPN_NONINTERACTIVE:-0}" = 1 ] || [ ! -t 0 ]; then [ "$def" = y ] && UVPN_PROTOCOLS="$UVPN_PROTOCOLS $p"
     else confirm "Install $p?" "$def" && UVPN_PROTOCOLS="$UVPN_PROTOCOLS $p"; fi
@@ -218,6 +222,10 @@ systemctl enable --now unified-panel.service unified-expiry.timer
 
 FAILED=()
 for p in $UVPN_PROTOCOLS; do
+  if [ "$p" = zivpn ] && [ ! -f "$UVPN_HOME/config/zivpn.json" ]; then
+    warn "zivpn skipped: $UVPN_HOME/config/zivpn.json is missing (audit your upstream first - docs/SOURCE_AUDIT.md)"
+    continue
+  fi
   log "Installing protocol: $p ..."
   if unified-vpn adapter-install "$p" 2>&1 | tee -a "$LOG_FILE"; then ok "$p installed"; else err "$p failed (see $LOG_FILE)"; FAILED+=("$p"); fi
 done
