@@ -31,9 +31,10 @@ def run_all():
             report.append({"component": ad.label,
                            "checks": [{"name": "reconcile", "ok": False, "msg": str(exc)[-200:]}]})
             continue
-        report.append({"component": ad.label, "checks": []})
-        for n, ok, m in ad.health():
-            report[-1]["checks"].append({"name": n, "ok": bool(ok), "msg": m})
+        checks = list(ad.health())
+        report.append({"component": ad.label, "checks": checks})
+    for item in report:
+        item["checks"] = [{"name": n, "ok": bool(ok), "msg": m} for n, ok, m in item["checks"]]
     for item in report:
         item["ok"] = all(c["ok"] for c in item["checks"]) or not item["checks"]
     return report
