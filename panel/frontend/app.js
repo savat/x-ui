@@ -150,7 +150,7 @@
     var st = h('select', {}, ['', 'active', 'expired', 'disabled'].map(function (s) {
       return h('option', { value: s }, ({ '': 'ทุกสถานะ', active: 'ใช้งาน', expired: 'หมดอายุ', disabled: 'ปิดใช้งาน' })[s]);
     }));
-    var pr = h('select', {}, ['', 'ssh', 'openvpn', 'vless', 'vmess', 'trojan', 'reality', 'hysteria2', 'wireguard', 'zivpn'].map(function (s) {
+    var pr = h('select', {}, ['', 'ssh', 'openvpn', 'vless', 'vmess', 'trojan', 'reality', 'hysteria2', 'hysteria1', 'wireguard', 'zivpn'].map(function (s) {
       return h('option', { value: s }, s || 'ทุกโปรโตคอล');
     }));
     var tbody = h('tbody', {});
@@ -182,7 +182,7 @@
   function addUser(done) {
     var f = { username: h('input', { autocomplete: 'off' }), password: h('input', { type: 'text', autocomplete: 'off' }),
       days: h('input', { type: 'number', value: 30, min: 1 }), max_connections: h('input', { type: 'number', value: 1, min: 0 }), note: h('input', {}) };
-    var boxes = ['ssh', 'openvpn', 'vless', 'vmess', 'trojan', 'reality', 'hysteria2', 'wireguard', 'zivpn'].map(function (p) {
+    var boxes = ['ssh', 'openvpn', 'vless', 'vmess', 'trojan', 'reality', 'hysteria2', 'hysteria1', 'wireguard', 'zivpn'].map(function (p) {
       var cb = h('input', { type: 'checkbox', value: p }); return h('label', {}, cb, ' ' + p);
     });
     var dlg = h('dialog', {}, h('h3', {}, 'เพิ่มผู้ใช้'),

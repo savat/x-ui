@@ -1,6 +1,9 @@
 # Test checklist (run on a spare VPS — plan §30, §47)
 
-Automated (no root needed): `PYTHONPATH=.:panel python3 tests/smoke_test.py`
+Automated (no root needed):
+- `PYTHONPATH=.:panel python3 tests/smoke_test.py`
+- `python3 tests/zivpn_auth_test.py` (ZIVPN HTTP auth: allow/deny, expiry, max-connections, reconnect)
+- `python3 tests/hysteria1_auth_test.py` (Hysteria 1 external auth: allow/deny, expiry, max-connections & online counts via server-log disconnect tracking)
 
 Manual on a fresh Ubuntu VPS:
 - [ ] `bash install.sh` finishes; `unified-vpn health` all `[OK]`
@@ -13,7 +16,8 @@ Manual on a fresh Ubuntu VPS:
 - [ ] Reality: import the vless:// link (tcp/8443) in v2rayN/Streisand/Hiddify; traffic flows; links keep working after adding/removing other users
 - [ ] Hysteria2: import hysteria2:// link; connect with 2+ users at once; expired user is refused
 - [ ] WireGuard: scan the QR / import .conf; internet works; disable user -> handshake no longer works; other users unaffected
-- [ ] ZIVPN: auth, connection, reconnect, expiry (after upstream audit)
+- [ ] ZIVPN: auth (valid allowed, bad/expired/disabled refused), connection, reconnect; max-connections enforced; dashboard online count matches
+- [ ] Hysteria 1: import the `hysteria://` link (UDP 36712) or download the app profile JSON; obfs default `opo`; connect; expired/disabled user refused; max-connections enforced; dashboard online count matches
 - [ ] Expiry: create 1-day user, set `expires_at` to the past in the DB, wait ≤1 min → connection/login refused in every protocol
 - [ ] Connection limit: max 2, open 3 → SSH 3rd is kicked within ~1 min, OpenVPN 3rd refused at login
 - [ ] Panel → Services: restart works; `ssh`/`nginx`/panel cannot be stopped

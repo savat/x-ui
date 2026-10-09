@@ -10,6 +10,7 @@ PROTOCOLS = {          # protocol key -> adapter name
     "zivpn": "zivpn",
     "reality": "xray",
     "hysteria2": "hysteria2",
+    "hysteria1": "hysteria1",
     "wireguard": "wireguard",
 }
 _cache = {}
@@ -23,8 +24,10 @@ def all_adapters():
         from .zivpn import ZivpnAdapter
         from .badvpn import BadVPNAdapter
         from .hysteria import HysteriaAdapter
+        from .hysteria1 import Hysteria1Adapter
         from .wireguard import WireGuardAdapter
-        for cls in (SSHAdapter, OpenVPNAdapter, XrayAdapter, ZivpnAdapter, HysteriaAdapter, WireGuardAdapter, BadVPNAdapter):
+        for cls in (SSHAdapter, OpenVPNAdapter, XrayAdapter, ZivpnAdapter, HysteriaAdapter, Hysteria1Adapter,
+                    WireGuardAdapter, BadVPNAdapter):
             _cache[cls.name] = cls()
     return _cache
 

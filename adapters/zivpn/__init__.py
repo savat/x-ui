@@ -1,8 +1,14 @@
 """ZIVPN adapter (UDP).
 
-!! UPSTREAM NOT AUDITED !!  Plan section 9/36/50: do not assume any repo's script/config format.
-This adapter is therefore config-driven. Before installing you must audit your chosen upstream
-(license, release, config schema) and write /opt/unified-vpn/config/zivpn.json:
+Auth: the upstream binary (zahidbd2/udp-zivpn 1.4.9, a Hysteria-v1 fork) supports modes
+``passwords`` / ``userpass`` / ``http`` / ``command``. We use ``http``: the server POSTs
+``{"addr","auth","tx"}`` to scripts/zivpn-auth.py on every connection, which checks the panel DB
+(read-only) and answers ``{"ok","id"}``. That is what makes expiry, disable and max-connections
+work for ZIVPN - the static ``passwords`` mode cannot. The endpoint runs as the loopback-only
+``unified-zivpn-auth.service`` managed by this adapter.
+
+Before installing you must audit your chosen upstream (license, release, config schema) and write
+/opt/unified-vpn/config/zivpn.json:
 
 {
   "binary_url":    "https://.../zivpn-linux-amd64",      # required
@@ -12,27 +18,31 @@ This adapter is therefore config-driven. Before installing you must audit your c
   "listen_port":   5667,
   "obfs":          "hu``hqb`c",
   "port_range":    "6000:19999",   # optional: DNAT incoming UDP range -> listen_port ("" disables)
-  "config_template": { ... }   # optional: full config JSON; "@PASSWORDS@" is replaced by the list of
-                               # each user's chosen password (NOT a random secret)
+  "auth_port":     18099,          # optional: loopback port of this adapter's HTTP auth service
+  "config_template": { ... }   # optional: full config JSON. "@PASSWORDS@" expands to the list of
+                               # each user's chosen password (static mode); "@AUTH_PORT@" to auth_port.
 }
 
-The DEFAULT_TEMPLATE below follows the layout used by common community builds and MUST be verified
-against the upstream you pick.
+The DEFAULT_TEMPLATE below uses the verified ``http`` auth schema.
 """
 import hashlib
 import json
 import os
 import shutil
+import socket
 
 from backend import config, db, servicemgr, shell
 from adapters.base import Adapter, AdapterError, apt_install, listening, port_free, write_file
+
+AUTH_UNIT = "unified-zivpn-auth.service"
+DEFAULT_AUTH_PORT = 18099
 
 DEFAULT_TEMPLATE = {
     "listen": ":@PORT@",
     "cert": "@ETC@/zivpn/zivpn.crt",
     "key": "@ETC@/zivpn/zivpn.key",
     "obfs": "@OBFS@",
-    "auth": {"mode": "passwords", "config": "@PASSWORDS@"},
+    "auth": {"mode": "http", "http": {"url": "http://127.0.0.1:@AUTH_PORT@/auth"}},
 }
 
 NAT_UNIT = "unified-zivpn-nat.service"
@@ -56,6 +66,30 @@ WantedBy=multi-user.target
 """ % (port, prange, config.SCRIPTS_DIR, config.SCRIPTS_DIR)
 
 
+def _auth_unit_text(s):
+    log = _log_path(s)
+    return """[Unit]
+Description=Unified VPN - ZIVPN HTTP auth (loopback)
+After=network.target
+
+[Service]
+ExecStart=%s %s/zivpn-auth.py
+Environment=UVPN_HOME=%s UVPN_DB=%s UVPN_DATA=%s ZIVPN_AUTH_PORT=%s ZIVPN_LOG=%s
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
+""" % (config.PY, config.SCRIPTS_DIR, config.HOME, config.DB_PATH, config.DATA, s["auth_port"], log)
+
+
+def _log_path(s):
+    return os.path.join(config.VARLOG, "unified-vpn/zivpn.log")
+
+
 class ZivpnAdapter(Adapter):
     name = "zivpn"
     label = "ZIVPN (UDP)"
@@ -64,7 +98,7 @@ class ZivpnAdapter(Adapter):
 
     @property
     def services(self):
-        return ("zivpn.service",)
+        return ("zivpn.service", AUTH_UNIT)
 
     def _settings(self):
         path = os.path.join(config.CONF_DIR, "zivpn.json")
@@ -78,6 +112,7 @@ class ZivpnAdapter(Adapter):
         s.setdefault("listen_port", 5667)
         s.setdefault("obfs", "hu``hqb`c")
         s.setdefault("port_range", "6000:19999")
+        s.setdefault("auth_port", DEFAULT_AUTH_PORT)
         return s
 
     @property
@@ -109,9 +144,14 @@ class ZivpnAdapter(Adapter):
                        "-out", os.path.join(zdir, "zivpn.crt")], check=True)
             if not config.DRY_RUN:
                 os.chmod(os.path.join(zdir, "zivpn.key"), 0o600)
+        log = _log_path(s)
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+        write_file(os.path.join(config.SYSTEMD_DIR, AUTH_UNIT), _auth_unit_text(s))
+        shell.run(["systemctl", "daemon-reload"], check=True)
+        shell.run(["systemctl", "enable", "--now", AUTH_UNIT], check=True)
         unit = """[Unit]
 Description=ZIVPN UDP (Unified VPN)
-After=network.target
+After=network.target %s
 
 [Service]
 ExecStart=%s %s
@@ -119,23 +159,27 @@ WorkingDirectory=%s
 Restart=always
 RestartSec=3
 LimitNOFILE=65535
+StandardOutput=append:%s
+StandardError=append:%s
 
 [Install]
 WantedBy=multi-user.target
-""" % (s["binary_path"], s["exec_args"], zdir)
+""" % (AUTH_UNIT, s["binary_path"], s["exec_args"], zdir, log, log)
         write_file(os.path.join(config.SYSTEMD_DIR, "zivpn.service"), unit)
         self._render(force=True, restart=False)
         shell.run(["systemctl", "daemon-reload"], check=True)
         shell.run(["systemctl", "enable", "--now", "zivpn.service"], check=True)
         self._ensure_nat(s)
-        self.mark_installed({"port": s["listen_port"], "port_range": s.get("port_range", "")})
+        self.mark_installed({"port": s["listen_port"], "port_range": s.get("port_range", ""),
+                             "auth_port": s["auth_port"]})
 
     def uninstall(self):
         self._remove_nat()
-        shell.run(["systemctl", "disable", "--now", "zivpn.service"])
-        p = os.path.join(config.SYSTEMD_DIR, "zivpn.service")
-        if os.path.exists(p):
-            os.remove(p)
+        for u in ("zivpn.service", AUTH_UNIT):
+            shell.run(["systemctl", "disable", "--now", u])
+            p = os.path.join(config.SYSTEMD_DIR, u)
+            if os.path.exists(p):
+                os.remove(p)
         shell.run(["systemctl", "daemon-reload"])
         self.unmark_installed()
 
@@ -154,7 +198,8 @@ WantedBy=multi-user.target
             if isinstance(v, str):
                 if v == "@PASSWORDS@":
                     return pw if pw else [self._placeholder()]
-                return v.replace("@PORT@", str(s["listen_port"])).replace("@OBFS@", s["obfs"]).replace("@ETC@", config.ETC)
+                return (v.replace("@PORT@", str(s["listen_port"])).replace("@OBFS@", s["obfs"])
+                        .replace("@ETC@", config.ETC).replace("@AUTH_PORT@", str(s["auth_port"])))
             if isinstance(v, dict):
                 return dict((k, sub(x)) for k, x in v.items())
             if isinstance(v, list):
@@ -259,10 +304,37 @@ WantedBy=multi-user.target
             info["port_range"] = s["port_range"]
         return {"links": [], "files": [], "info": info}
 
+    def online(self):
+        """{username: connection_count} as tracked by the HTTP auth service (zivpn-online.json)."""
+        try:
+            with open(os.path.join(config.DATA, "zivpn-online.json")) as fh:
+                d = json.load(fh)
+        except (IOError, OSError, ValueError):
+            return {}
+        out = {}
+        for name, n in d.items():
+            try:
+                n = int(n)
+            except (TypeError, ValueError):
+                continue
+            if n > 0:
+                out[name] = n
+        return out
+
+    def _auth_reachable(self, s):
+        if config.DRY_RUN:
+            return True
+        try:
+            with socket.create_connection(("127.0.0.1", int(s["auth_port"])), timeout=2):
+                return True
+        except OSError:
+            return False
+
     def info(self):
         try:
             s = self._settings()
-            return {"port": s["listen_port"], "obfs": s["obfs"], "port_range": s.get("port_range", "")}
+            return {"port": s["listen_port"], "obfs": s["obfs"], "port_range": s.get("port_range", ""),
+                    "auth": "http (DB-backed)", "auth_port": s["auth_port"]}
         except AdapterError:
             return {"configured": False}
 
@@ -271,13 +343,17 @@ WantedBy=multi-user.target
             s = self._settings()
         except AdapterError as e:
             return [("zivpn.json present", False, str(e))]
-        res = [("zivpn binary exists", os.path.exists(s["binary_path"]) or config.DRY_RUN, "")]
+        res = [("zivpn binary exists", os.path.exists(s["binary_path"]) or config.DRY_RUN, ""),
+               ("zivpn auth script present",
+                os.path.exists(os.path.join(config.SCRIPTS_DIR, "zivpn-auth.py")) or config.DRY_RUN, "")]
         ok = True
         try:
             json.load(open(self.conf_path))
         except (IOError, OSError, ValueError):
             ok = config.DRY_RUN
         res.append(("zivpn config valid JSON", ok, ""))
+        res.append(("zivpn auth service active", servicemgr.unit_state(AUTH_UNIT) in ("RUNNING", "UNKNOWN"), ""))
+        res.append(("zivpn auth endpoint reachable", self._auth_reachable(s), "127.0.0.1:%s" % s["auth_port"]))
         res.append(("zivpn service active", servicemgr.unit_state("zivpn.service") in ("RUNNING", "UNKNOWN"), ""))
         res.append(("zivpn udp port listening", listening("udp", s["listen_port"]), ""))
         if s.get("port_range"):

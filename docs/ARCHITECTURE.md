@@ -22,6 +22,7 @@ The panel never contains protocol-specific commands.
 | openvpn | no system account; `ovpn-auth.py` checks the DB on every login | next login fails (active sessions end at reconnect) |
 | xray | declarative: `config.json` built from DB → `xray run -test` → atomic swap → restart only if changed | removed on sync |
 | hysteria2 | declarative: YAML rendered from DB (every active user in `userpass`) | removed on sync (restart) |
+| hysteria1 | config rendered from DB; auth is per-connection via `hysteria1-auth.py` (`auth.mode: external`), counts from the server log | next login fails; live sessions dropped at reconnect |
 | wireguard | declarative: `wg0.conf` peers rendered from DB, applied with `wg syncconf` | peer removed on sync |
 | xray (reality) | same Xray config, extra VLESS+Reality inbound on tcp/8443, keys in `config/xray-reality.json` (0600) | removed on sync |
 | zivpn | declarative: config rendered from DB (config-driven, see module docstring) | removed on sync |
