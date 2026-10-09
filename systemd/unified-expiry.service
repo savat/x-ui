@@ -1,0 +1,8 @@
+[Unit]
+Description=ZIVPN Panel - expire/revoke accounts and enforce limits
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/unified-vpn/config/panel.env
+Environment=PYTHONPATH=/opt/unified-vpn:/opt/unified-vpn/panel
+ExecStart=/opt/unified-vpn/venv/bin/python -m backend.maintenance

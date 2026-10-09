@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+# ZIVPN Panel installer.   bash install.sh
+# Installs the panel API and the ZIVPN (UDP) server in one go.
+# Non-interactive: set UVPN_NONINTERACTIVE=1 and UVPN_DOMAIN, UVPN_EMAIL, UVPN_PANEL_PORT, UVPN_ADMIN_USER,
+# UVPN_ADMIN_PASS, UVPN_ASSUME_YES=1
+set -Eeuo pipefail
+
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib.sh
+source "$SRC_DIR/scripts/lib.sh"
+mkdir -p "$(dirname "$LOG_FILE")"; : >>"$LOG_FILE"; chmod 600 "$LOG_FILE"
+trap 'rc=$?; err "Installer stopped at line $LINENO (exit $rc). Nothing was killed or removed automatically. See $LOG_FILE"; exit $rc' ERR
+
+echo "=============================="
+echo "  ZIVPN Panel Installer"
+echo "=============================="
+
+# ---------------------------------------------------------------- 1. root / OS / resources
+need_root
+. /etc/os-release
+case "${ID}:${VERSION_ID}" in
+  ubuntu:20.04|ubuntu:22.04|ubuntu:24.04|debian:11|debian:12) ok "OS: $PRETTY_NAME" ;;
+  *) [ "${UVPN_FORCE:-0}" = 1 ] || die "Unsupported OS: $PRETTY_NAME (supported: Ubuntu 20.04/22.04/24.04, Debian 11/12). Set UVPN_FORCE=1 to try anyway." ;;
+esac
+ARCH="$(uname -m)"; RAM_MB="$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)"
+DISK_GB="$(df -BG --output=avail / | tail -1 | tr -dc '0-9')"; CPUS="$(nproc)"
+log "Arch=$ARCH  CPU=$CPUS  RAM=${RAM_MB}MB  Disk free=${DISK_GB}GB  Kernel=$(uname -r)"
+[ "$RAM_MB" -ge 1500 ] || warn "Less than 2GB RAM - fine for a single protocol, tight for several."
+[ "$DISK_GB" -ge 10 ] || warn "Less than 10GB free disk."
+curl -fsS --max-time 10 -o /dev/null https://github.com || die "No internet access (cannot reach github.com)"
+ok "Internet reachable"
+
+# ---------------------------------------------------------------- 2. questions
+ask UVPN_DOMAIN "Panel domain (blank = use server IP with a self-signed certificate)" ""
+if [ -n "$UVPN_DOMAIN" ]; then ask UVPN_EMAIL "Email for Let's Encrypt (optional)" ""; fi
+ask UVPN_PANEL_PORT "Panel internal port (127.0.0.1 only)" "8080"
+
+# Admin account is OPTIONAL at install time - you can create/edit it any time later
+# from the 'm' menu ("จัดการผู้ดูแลระบบ"). Skip with an empty username.
+if [ -z "${UVPN_ADMIN_USER:-}" ] && [ "${UVPN_NONINTERACTIVE:-0}" != 1 ] && [ -t 0 ]; then
+  if confirm "ตั้งชื่อผู้ใช้/รหัสผ่านผู้ดูแลระบบ (Panel admin) ตอนนี้เลยไหม? (ไม่ = ตั้งทีหลังด้วยคำสั่ง m)" y; then
+    ask UVPN_ADMIN_USER "Admin username" "superadmin"
+  fi
+fi
+if [ -n "${UVPN_ADMIN_USER:-}" ]; then
+  ask_secret UVPN_ADMIN_PASS "Admin password (min 10 chars)"
+  [ "${#UVPN_ADMIN_PASS}" -ge 10 ] || die "Admin password must be at least 10 characters"
+  [ "$UVPN_ADMIN_USER" = admin ] && [ "$UVPN_ADMIN_PASS" = admin ] && die "admin/admin is not allowed"
+fi
+
+# ---------------------------------------------------------------- 2b. stop a previous install of *ours*
+# Re-running the installer must not be blocked by the services it installed last time
+# (panel on the loopback port, ZIVPN udp/5667, ...). We only touch our own units.
+if [ -f /etc/systemd/system/unified-panel.service ] || [ -f "$UVPN_HOME/config/panel.env" ]; then
+  log "Existing install detected - stopping its services so ports can be reused ..."
+  for u in unified-panel.service unified-zivpn-nat.service zivpn.service unified-expiry.timer unified-expiry.service; do
+    systemctl stop "$u" >/dev/null 2>&1 || true
+  done
+  pkill -f "$UVPN_HOME/venv/bin/gunicorn" >/dev/null 2>&1 || true   # leftover from an interrupted run
+  log "  previous services stopped (ports should be free now)"
+  sleep 1
+fi
+
+# ---------------------------------------------------------------- 3. port check (never kills anything)
+log "Checking ports ..."
+show_owner() { local o; o="$(port_owner "$1")"; printf '%s' "${o:-unknown - find it with: ss -lntup | grep ':$1 '}"; }
+bad=0
+for spec in tcp:80 tcp:443; do
+  proto="${spec%%:*}"; port="${spec##*:}"
+  if port_in_use "$proto" "$port"; then
+    if port_owner "$port" | grep nginx >/dev/null; then
+      log "  tcp/$port is held by nginx (this installer manages nginx) - OK"
+    else
+      err "$proto/$port is in use by: $(show_owner "$port")"; bad=1
+    fi
+  fi
+done
+if port_in_use tcp "$UVPN_PANEL_PORT"; then err "tcp/$UVPN_PANEL_PORT already in use by: $(show_owner "$UVPN_PANEL_PORT")"; bad=1; fi
+port_in_use udp 5667 && { err "udp/5667 (ZIVPN) in use by: $(show_owner 5667)"; bad=1; }
+[ "$bad" -eq 0 ] || die "Free the ports above (or pick another panel port) and re-run. The installer never kills other processes."
+ok "Ports free"
+
+# ---------------------------------------------------------------- 4. dependencies
+log "Installing base packages ..."
+export DEBIAN_FRONTEND=noninteractive
+log "  apt-get update ..."
+apt-get update -y 2>&1 | tee -a "$LOG_FILE"
+log "  apt-get install (curl wget git unzip tar jq openssl ca-certificates socat nginx sqlite3 cron iptables ufw python3 python3-venv python3-pip rsync) ..."
+apt-get install -y --no-install-recommends curl wget git unzip tar jq openssl ca-certificates socat nginx sqlite3 cron \
+  iptables ufw python3 python3-venv python3-pip rsync 2>&1 | tee -a "$LOG_FILE"
+if [ -n "$UVPN_DOMAIN" ]; then
+  log "  apt-get install certbot ..."
+  apt-get install -y --no-install-recommends certbot 2>&1 | tee -a "$LOG_FILE"
+fi
+ok "Packages installed"
+
+# ---------------------------------------------------------------- 5. firewall (warn + confirm inside)
+SSH_PORT="$(detect_ssh_port)"
+FW_EXTRA=("5667/udp" "6000:19999/udp")
+if confirm "Configure the UFW firewall now? (SSH port $SSH_PORT will be allowed first)" y; then
+  UVPN_ASSUME_YES=1 bash "$SRC_DIR/scripts/firewall.sh" apply "${FW_EXTRA[@]}"
+else
+  warn "Firewall skipped. Remember to open: 80/tcp 443/tcp ${FW_EXTRA[*]:-}"
+fi
+
+# ---------------------------------------------------------------- 6. files, venv, config
+log "Installing files to $UVPN_HOME ..."
+mkdir -p "$UVPN_HOME"/{bin,config/installed,log,backups,scripts,adapters,panel,database} "$UVPN_DATA" /etc/unified-vpn
+log "  syncing panel/ adapters/ scripts/ database/ ..."
+rsync -av --delete --exclude '__pycache__' "$SRC_DIR/panel/" "$UVPN_HOME/panel/" 2>&1 | tee -a "$LOG_FILE"
+rsync -av --delete --exclude '__pycache__' "$SRC_DIR/adapters/" "$UVPN_HOME/adapters/" 2>&1 | tee -a "$LOG_FILE"
+rsync -av "$SRC_DIR/scripts/" "$UVPN_HOME/scripts/" 2>&1 | tee -a "$LOG_FILE"
+rsync -av "$SRC_DIR/database/" "$UVPN_HOME/database/" 2>&1 | tee -a "$LOG_FILE"
+cp "$SRC_DIR/update.sh" "$SRC_DIR/uninstall.sh" "$UVPN_HOME/"
+cp "$SRC_DIR/VERSION" "$UVPN_HOME/VERSION" 2>/dev/null || echo "dev" >"$UVPN_HOME/VERSION"
+chmod +x "$UVPN_HOME"/scripts/*.sh "$UVPN_HOME"/scripts/*.py "$UVPN_HOME"/update.sh "$UVPN_HOME"/uninstall.sh
+chmod 700 "$UVPN_HOME/config" "$UVPN_HOME/backups" "$UVPN_DATA"
+
+log "Creating Python virtualenv at $UVPN_HOME/venv ..."
+python3 -m venv "$UVPN_HOME/venv" 2>&1 | tee -a "$LOG_FILE"
+log "  upgrading pip ..."
+"$UVPN_HOME/venv/bin/pip" install --upgrade pip 2>&1 | tee -a "$LOG_FILE"
+log "  installing Python requirements ..."
+"$UVPN_HOME/venv/bin/pip" install -r "$UVPN_HOME/panel/backend/requirements.txt" 2>&1 | tee -a "$LOG_FILE"
+ok "Python environment ready"
+
+if [ ! -f "$UVPN_HOME/config/panel.env" ]; then
+  umask 077
+  cat >"$UVPN_HOME/config/panel.env" <<ENV
+UVPN_SECRET_KEY=$(openssl rand -hex 32)
+UVPN_BIND=127.0.0.1
+UVPN_PORT=$UVPN_PANEL_PORT
+ENV
+fi
+[ -f "$UVPN_HOME/config/backup.key" ] || { umask 077; openssl rand -base64 32 >"$UVPN_HOME/config/backup.key"; }
+printf '#!/usr/bin/env bash\nexport PYTHONPATH=%s:%s/panel\nset -a; . %s/config/panel.env; set +a\nexec %s/venv/bin/python -m backend "$@"\n' \
+  "$UVPN_HOME" "$UVPN_HOME" "$UVPN_HOME" "$UVPN_HOME" >/usr/local/bin/unified-vpn
+chmod 755 /usr/local/bin/unified-vpn
+ln -sf /usr/local/bin/unified-vpn /usr/local/bin/m
+chmod 755 /usr/local/bin/m
+
+log "Detecting public IP ..."
+PUBLIC_IP="$(public_ip || true)"
+HOST="${UVPN_DOMAIN:-$PUBLIC_IP}"
+[ -n "$HOST" ] || die "Could not determine public IP; set UVPN_DOMAIN"
+log "  public IP: ${PUBLIC_IP:-unknown}  host: $HOST"
+
+# ---------------------------------------------------------------- 7. database + admin
+log "Initialising database ..."
+unified-vpn init-db
+unified-vpn set-setting host "$HOST"
+unified-vpn set-setting public_ip "${PUBLIC_IP:-}"
+if [ -n "${UVPN_ADMIN_USER:-}" ]; then
+  UVPN_ADMIN_PASS="$UVPN_ADMIN_PASS" unified-vpn create-admin --username "$UVPN_ADMIN_USER"
+  ok "Database and admin account ready"
+else
+  ok "Database ready (ยังไม่มีผู้ดูแลระบบ - พิมพ์ m แล้วเลือก 'จัดการผู้ดูแลระบบ')"
+fi
+
+# ---------------------------------------------------------------- 8. nginx base config BEFORE protocols (they drop snippets in)
+rm -f /etc/nginx/sites-enabled/default      # only the symlink; the original stays in sites-available
+mkdir -p /var/www/html
+render_nginx() {  # render_nginx CERT KEY
+  local server_name="${UVPN_DOMAIN:-_}" default="" hsts=""
+  [ -n "$UVPN_DOMAIN" ] || default=" default_server"
+  [ "${3:-}" = hsts ] && hsts='add_header Strict-Transport-Security "max-age=31536000" always;'
+  sed -e "s|@SERVER_NAME@|$server_name|g" -e "s|@DEFAULT@|$default|g" -e "s|@CERT@|$1|g" -e "s|@KEY@|$2|g" \
+      -e "s|@PANEL_PORT@|$UVPN_PANEL_PORT|g" -e "s|@HSTS@|$hsts|g" "$SRC_DIR/nginx/panel.conf.tpl" >/etc/nginx/conf.d/unified-vpn.conf
+}
+CERT=""; KEY=""; SELF=1
+if [ -n "$UVPN_DOMAIN" ]; then
+  # temporary self-signed so nginx can start, then try Let's Encrypt (webroot)
+  mkdir -p /etc/unified-vpn/tls
+  openssl req -x509 -nodes -newkey rsa:2048 -days 3650 -subj "/CN=$UVPN_DOMAIN" \
+    -keyout /etc/unified-vpn/tls/self.key -out /etc/unified-vpn/tls/self.crt >/dev/null 2>&1
+  chmod 600 /etc/unified-vpn/tls/self.key
+  render_nginx /etc/unified-vpn/tls/self.crt /etc/unified-vpn/tls/self.key
+  log "  validating nginx config and starting nginx ..."
+  nginx -t 2>&1 | tee -a "$LOG_FILE"
+  systemctl enable --now nginx
+  systemctl reload nginx
+  email_args=(--register-unsafely-without-email); [ -z "${UVPN_EMAIL:-}" ] || email_args=(-m "$UVPN_EMAIL")
+  log "  requesting Let's Encrypt certificate for $UVPN_DOMAIN (certbot) ..."
+  if certbot certonly --webroot -w /var/www/html -d "$UVPN_DOMAIN" --non-interactive --agree-tos "${email_args[@]}" \
+       --deploy-hook "systemctl reload nginx" 2>&1 | tee -a "$LOG_FILE"; then
+    CERT="/etc/letsencrypt/live/$UVPN_DOMAIN/fullchain.pem"; KEY="/etc/letsencrypt/live/$UVPN_DOMAIN/privkey.pem"; SELF=0
+    ok "Let's Encrypt certificate issued (auto-renewal via certbot timer)"
+  else
+    warn "Let's Encrypt failed (check DNS A record for $UVPN_DOMAIN -> $PUBLIC_IP, and port 80). Using a self-signed certificate."
+  fi
+fi
+if [ "$SELF" = 1 ]; then
+  mkdir -p /etc/unified-vpn/tls
+  [ -f /etc/unified-vpn/tls/self.crt ] || { openssl req -x509 -nodes -newkey rsa:2048 -days 3650 -subj "/CN=${HOST}" \
+      -keyout /etc/unified-vpn/tls/self.key -out /etc/unified-vpn/tls/self.crt >/dev/null 2>&1; chmod 600 /etc/unified-vpn/tls/self.key; }
+  CERT=/etc/unified-vpn/tls/self.crt; KEY=/etc/unified-vpn/tls/self.key
+  unified-vpn set-setting tls_selfsigned 1
+  render_nginx "$CERT" "$KEY"
+else
+  unified-vpn set-setting tls_selfsigned 0
+  render_nginx "$CERT" "$KEY" hsts
+fi
+unified-vpn set-setting tls_cert "$CERT"; unified-vpn set-setting tls_key "$KEY"
+log "Final nginx config test ..."
+nginx -t 2>&1 | tee -a "$LOG_FILE" || die "nginx config test failed"
+systemctl enable --now nginx; systemctl reload nginx
+
+# ---------------------------------------------------------------- 9. systemd (panel first so DB exists), then protocols
+log "Installing systemd units and starting the panel ..."
+cp "$SRC_DIR"/systemd/unified-*.service "$SRC_DIR"/systemd/unified-*.timer /etc/systemd/system/
+install -m 644 "$SRC_DIR/scripts/logrotate-unified-vpn" /etc/logrotate.d/unified-vpn
+systemctl daemon-reload
+systemctl enable --now unified-panel.service unified-expiry.timer
+
+FAILED=()
+log "Installing ZIVPN ..."
+if UVPN_HOME="$UVPN_HOME" bash "$SRC_DIR/scripts/setup-zivpn.sh" 2>&1 | tee -a "$LOG_FILE"; then ok "ZIVPN installed"; else err "ZIVPN failed (see $LOG_FILE)"; FAILED+=("zivpn"); fi
+systemctl reload nginx || true
+
+# ---------------------------------------------------------------- 10. health check
+log "Health check ..."
+sleep 2
+unified-vpn health || warn "Some checks failed - run: unified-vpn health"
+
+echo
+ok "Installation finished"
+if [ -n "$UVPN_DOMAIN" ] && [ "$SELF" = 0 ]; then URL="https://$UVPN_DOMAIN"; else URL="https://$HOST (self-signed certificate: your browser will warn)"; fi
+echo "  Panel URL : $URL"
+if [ -n "${UVPN_ADMIN_USER:-}" ]; then
+  echo "  Admin     : $UVPN_ADMIN_USER   (แก้ไขได้ตลอดด้วยเมนู m)"
+else
+  echo "  Admin     : ยังไม่ได้ตั้งค่า - พิมพ์ m แล้วเลือก 'จัดการผู้ดูแลระบบ'"
+fi
+echo "  CLI       : m   (หรือ unified-vpn)  - เมนูภาษาไทย"
+echo "  Backup key: $UVPN_HOME/config/backup.key   <-- copy it somewhere safe, backups cannot be restored without it"
+[ "${#FAILED[@]}" -eq 0 ] || warn "ZIVPN failed to install - retry with: bash scripts/setup-zivpn.sh"

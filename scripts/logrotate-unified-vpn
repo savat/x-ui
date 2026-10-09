@@ -1,0 +1,9 @@
+/opt/unified-vpn/log/*.log {
+    weekly
+    rotate 4
+    size 50M
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
