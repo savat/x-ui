@@ -261,6 +261,41 @@ def _reset_password(conn):
     print(_ok("รีเซ็ตรหัสผู้ใช้ id %d แล้ว" % uid))
 
 
+def _edit_protocols(conn):
+    uid = _ask_uid(conn)
+    row = usermgr.get_user(conn, uid)
+    have = [a["protocol"] for a in usermgr.accounts_of(conn, uid)]
+    avail = [p for p in _PROTO_ORDER if usermgr.adapter_for(p).installed()]
+    if not avail:
+        print(_bad("ยังไม่มีโปรโตคอลที่ติดตั้ง"))
+        return
+    print(_title("โปรโตคอลที่ใช้ได้ (เครื่องหมาย * = เปิดอยู่):"))
+    for i, p in enumerate(avail, 1):
+        print("  %s%d) %s" % ("*" if p in have else " ", i, _PROTO_TH.get(p, p)))
+    raw = _ask("เลือกโปรโตคอลที่ต้องการ (คั่นด้วย , หรือใส่หมายเลข)",
+               ",".join(str(i) for i, p in enumerate(avail, 1) if p in have))
+    try:
+        protos = _parse_protos(raw, avail)
+    except Exception as exc:
+        print(_bad(str(exc)))
+        return
+    added = set(protos) - set(have)
+    password = None
+    if added & {"ssh", "zivpn"}:
+        password = getpass.getpass("รหัสผ่านสำหรับ %s: " % "/".join(sorted(added & {"ssh", "zivpn"})))
+    try:
+        usermgr.update(conn, uid, {"protocols": protos, "password": password})
+    except Exception as exc:
+        print(_bad("แก้ไขไม่สําเร็จ: %s" % exc))
+        return
+    print(_ok("อัปเดตโปรโตคอลผู้ใช้ '%s' แล้ว" % row["username"]))
+    try:
+        print(_title("ข้อมูลเชื่อมต่อ (แชร์ให้ผู้ใช้):"))
+        _show_share(usermgr.share_info(conn, uid))
+    except Exception as exc:
+        print(_dim("  (แสดงข้อมูลเชื่อมต่อไม่ได้: %s)" % exc))
+
+
 def _show_services():
     for s in servicemgr.list_services():
         state = _ok(s["state"]) if s["state"] == "RUNNING" else _dim(s["state"])
@@ -283,6 +318,7 @@ _MENU = """
    1) รายการผู้ใช้           2) เพิ่มผู้ใช้ใหม่
    3) รีเซ็ตรหัสผู้ใช้       4) ต่ออายุผู้ใช้
    5) เปิด/ปิดใช้งาน        6) ลบผู้ใช้
+  12) แก้ไขโปรโตคอลผู้ใช้
   ── ระบบ ──────────────────────────────
    7) จัดการผู้ดูแลระบบ
    8) สถานะบริการ           9) รีสตาร์ทบริการ
@@ -325,6 +361,8 @@ def menu():
                 if _ask("ยืนยันลบ? พิมพ์ yes") == "yes":
                     usermgr.delete(conn, uid)
                     print(_ok("ลบผู้ใช้ id %d แล้ว" % uid))
+            elif c == "12":
+                _edit_protocols(conn)
             elif c == "7":
                 _manage_admin(conn)
             elif c == "8":
