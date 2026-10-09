@@ -113,7 +113,8 @@ rsync -av "$SRC_DIR/scripts/" "$UVPN_HOME/scripts/" 2>&1 | tee -a "$LOG_FILE"
 rsync -av "$SRC_DIR/database/" "$UVPN_HOME/database/" 2>&1 | tee -a "$LOG_FILE"
 cp "$SRC_DIR/update.sh" "$SRC_DIR/uninstall.sh" "$UVPN_HOME/"
 cp "$SRC_DIR/VERSION" "$UVPN_HOME/VERSION" 2>/dev/null || echo "dev" >"$UVPN_HOME/VERSION"
-chmod +x "$UVPN_HOME"/scripts/*.sh "$UVPN_HOME"/scripts/*.py "$UVPN_HOME"/update.sh "$UVPN_HOME"/uninstall.sh
+chmod +x "$UVPN_HOME"/scripts/*.sh "$UVPN_HOME"/update.sh "$UVPN_HOME"/uninstall.sh
+find "$UVPN_HOME/scripts" -maxdepth 1 -type f -name "*.py" -exec chmod +x {} +
 chmod 700 "$UVPN_HOME/config" "$UVPN_HOME/backups" "$UVPN_DATA"
 
 log "Creating Python virtualenv at $UVPN_HOME/venv ..."
