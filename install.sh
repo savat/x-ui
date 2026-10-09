@@ -50,7 +50,7 @@ fi
 # ---- protocol selection: เลือกทั้งหมด / เลือกเอง -----------------------------------------
 if [ -z "${UVPN_PROTOCOLS:-}" ]; then
   UVPN_PROTOCOLS=""
-  _avail=(openvpn ssh xray wireguard hysteria2 hysteria1 badvpn)
+  _avail=(openvpn ssh xray wireguard hysteria2 badvpn)
   [ -f "$UVPN_HOME/config/zivpn.json" ] && _avail+=(zivpn)
   if [ "${UVPN_NONINTERACTIVE:-0}" = 1 ] || [ ! -t 0 ]; then
     for p in "${_avail[@]}"; do
@@ -111,8 +111,8 @@ log "Protocols: ${UVPN_PROTOCOLS:-none}"
 if [ -f /etc/systemd/system/unified-panel.service ] || [ -f "$UVPN_HOME/config/panel.env" ] \
    || [ -f /etc/openvpn/server/uvpn-udp.conf ] || [ -f /etc/wireguard/wg0.conf ]; then
   log "Existing Unified VPN install detected - stopping its services so ports can be reused ..."
-  for u in unified-panel.service unified-ws-ssh.service unified-hysteria.service unified-hysteria1.service unified-hysteria1-auth.service unified-badvpn.service \
-           unified-vpn-nat.service unified-zivpn-nat.service xray.service zivpn.service unified-zivpn-auth.service unified-expiry.timer unified-expiry.service \
+  for u in unified-panel.service unified-ws-ssh.service unified-hysteria.service unified-badvpn.service \
+           unified-vpn-nat.service unified-zivpn-nat.service xray.service zivpn.service unified-expiry.timer unified-expiry.service \
            openvpn-server@uvpn-udp.service openvpn-server@uvpn-tcp.service wg-quick@wg0.service; do
     systemctl stop "$u" >/dev/null 2>&1 || true
   done
@@ -164,7 +164,6 @@ FW_EXTRA=()
 [[ " $UVPN_PROTOCOLS " == *" xray "* ]] && FW_EXTRA+=("8443/tcp")
 [[ " $UVPN_PROTOCOLS " == *" wireguard "* ]] && FW_EXTRA+=("51820/udp")
 [[ " $UVPN_PROTOCOLS " == *" hysteria2 "* ]] && FW_EXTRA+=("443/udp")
-[[ " $UVPN_PROTOCOLS " == *" hysteria1 "* ]] && FW_EXTRA+=("36712/udp")
 [[ " $UVPN_PROTOCOLS " == *" zivpn "* ]] && FW_EXTRA+=("5667/udp" "6000:19999/udp")
 if confirm "Configure the UFW firewall now? (SSH port $SSH_PORT will be allowed first)" y; then
   UVPN_ASSUME_YES=1 bash "$SRC_DIR/scripts/firewall.sh" apply "${FW_EXTRA[@]}"

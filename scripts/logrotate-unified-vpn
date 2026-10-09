@@ -1,4 +1,4 @@
-/var/log/openvpn/uvpn-*.log /var/log/xray/*.log /var/log/unified-vpn/*.log /opt/unified-vpn/log/*.log {
+/var/log/openvpn/uvpn-*.log /var/log/xray/*.log /opt/unified-vpn/log/*.log {
     weekly
     rotate 4
     size 50M

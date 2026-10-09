@@ -96,10 +96,9 @@ def _ask_uid(conn, prompt="รหัสผู้ใช้ (ID หรือชื
     return row["id"]
 
 
-_PROTO_ORDER = ("ssh", "openvpn", "vless", "vmess", "trojan", "reality", "hysteria2", "hysteria1", "wireguard", "zivpn")
+_PROTO_ORDER = ("ssh", "openvpn", "vless", "vmess", "trojan", "reality", "hysteria2", "wireguard", "zivpn")
 _PROTO_TH = {"ssh": "SSH", "openvpn": "OpenVPN", "vless": "VLESS", "vmess": "VMess", "trojan": "Trojan",
-             "reality": "VLESS+Reality", "hysteria2": "Hysteria 2", "hysteria1": "Hysteria 1",
-             "wireguard": "WireGuard", "zivpn": "ZIVPN (UDP)"}
+             "reality": "VLESS+Reality", "hysteria2": "Hysteria 2", "wireguard": "WireGuard", "zivpn": "ZIVPN (UDP)"}
 _STATUS_TH = {"active": "ใช้งาน", "expired": "หมดอายุ", "disabled": "ปิด"}
 
 

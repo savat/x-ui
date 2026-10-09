@@ -74,28 +74,6 @@ protos = sorted(i["protocol"] for i in cfg["inbounds"])
 check("xray config rendered from DB (vless/vmess/trojan)", protos == ["trojan", "vless", "vmess"])
 check("xray listens on loopback only", all(i["listen"] == "127.0.0.1" for i in cfg["inbounds"]))
 
-zv = json.load(open(os.path.join(config.ETC, "zivpn/config.json")))
-check("zivpn config uses http DB auth",
-      zv["auth"]["mode"] == "http" and zv["auth"]["http"]["url"] == "http://127.0.0.1:18099/auth")
-check("zivpn auth service unit written",
-      os.path.exists(os.path.join(config.SYSTEMD_DIR, "unified-zivpn-auth.service")))
-check("zivpn unit logs to file (connection tracking)",
-      "StandardOutput=append:" in open(os.path.join(config.SYSTEMD_DIR, "zivpn.service")).read())
-json.dump({"test01": 1}, open(os.path.join(config.DATA, "zivpn-online.json"), "w"))
-check("zivpn online() reads auth-service state", all_adapters()["zivpn"].online() == {"test01": 1})
-
-hy1 = json.load(open(os.path.join(config.ETC, "hysteria1/config.json")))
-check("hysteria1 config uses external DB auth",
-      hy1["auth"]["mode"] == "external" and hy1["auth"]["config"]["http"] == "http://127.0.0.1:18100/auth"
-      and hy1["listen"] == ":36712")
-check("hysteria1 auth service unit written",
-      os.path.exists(os.path.join(config.SYSTEMD_DIR, "unified-hysteria1-auth.service")))
-check("hysteria1 default obfs is opo", hy1.get("obfs") == "opo")
-check("hysteria1 unit logs to file (connection tracking)",
-      "StandardOutput=append:" in open(os.path.join(config.SYSTEMD_DIR, "unified-hysteria1.service")).read())
-json.dump({"test01": 1}, open(os.path.join(config.DATA, "hysteria1-online.json"), "w"))
-check("hysteria1 online() reads auth-service state", all_adapters()["hysteria1"].online() == {"test01": 1})
-
 share = c.get("/api/users/%d/share" % uid).get_json()
 links = [l["url"] for s in share for l in s["links"]]
 check("share links generated", any(l.startswith("vless://") for l in links) and any(l.startswith("vmess://") for l in links)
@@ -132,9 +110,9 @@ import re  # noqa: E402
 ids = []
 for n in ("alice", "bobby", "carol"):
     r = c.post("/api/users", json={"username": n, "password": "passw0rd-" + n, "days": 5,
-                                   "protocols": ["reality", "hysteria2", "hysteria1", "wireguard"]}, headers=H)
+                                   "protocols": ["reality", "hysteria2", "wireguard"]}, headers=H)
     ids.append(r.get_json().get("id"))
-    check("create %s (reality+hysteria2+hysteria1+wireguard)" % n, r.status_code == 201)
+    check("create %s (reality+hysteria2+wireguard)" % n, r.status_code == 201)
 hy = open(os.path.join(config.ETC, "hysteria/config.yaml")).read()
 check("hysteria2 config contains ALL 3 users (regression for single-user bug)",
       all(('"%s":' % n) in hy for n in ("alice", "bobby", "carol")))
@@ -151,22 +129,11 @@ wg = open(os.path.join(config.ETC, "wireguard/wg0.conf")).read()
 ips = re.findall(r"AllowedIPs = (10\.66\.0\.\d+)/32", wg)
 check("wireguard: 3 peers with unique IPs", len(ips) == 3 and len(set(ips)) == 3)
 share = dict((s["protocol"], s) for s in c.get("/api/users/%d/share" % ids[0]).get_json())
-check("share links: hysteria2:// and hysteria:// and reality vless://",
+check("share links: hysteria2:// and reality vless://",
       share["hysteria2"]["links"][0]["url"].startswith("hysteria2://alice:") and
-      share["hysteria1"]["links"][0]["url"].startswith("hysteria://vpn.example.com:36712?") and
-      "auth=alice%3A" in share["hysteria1"]["links"][0]["url"] and
       "security=reality" in share["reality"]["links"][0]["url"] and "pbk=" in share["reality"]["links"][0]["url"])
 r = c.get("/api/users/%d/config?protocol=wireguard" % ids[0])
 check("wireguard .conf download", r.status_code == 200 and b"[Peer]" in r.data and b"Endpoint = vpn.example.com:51820" in r.data)
-check("hysteria1 share offers app profile download",
-      share["hysteria1"]["files"][0]["protocol"] == "hysteria1")
-r = c.get("/api/users/%d/config?protocol=hysteria1" % ids[0])
-prof = json.loads(r.data)
-udp = json.loads(prof["Servers"][0]["UDPConfig"])
-check("hysteria1 app profile download",
-      r.status_code == 200 and prof["Servers"][0]["ServerIP"] == "vpn.example.com"
-      and udp["server"] == "vpn.example.com:36712" and udp["auth_str"].startswith("alice:")
-      and udp["obfs"] == "opo" and prof["Networks"][0]["SelectedProtocal"] == "UDP Hysteria")
 c.post("/api/users/%d/disable" % ids[1], headers=H)
 check("disabled user removed from hysteria2 + wireguard",
       '"bobby":' not in open(os.path.join(config.ETC, "hysteria/config.yaml")).read()

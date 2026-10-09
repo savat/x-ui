@@ -294,18 +294,18 @@ def create_app():
         return jsonify(usermgr.share_info(conn, uid))
 
     def _client_file(conn, uid):
-        """(filename, text) for protocol=openvpn&proto=udp|tcp, protocol=wireguard or protocol=hysteria1."""
+        """(filename, text) for protocol=openvpn&proto=udp|tcp or protocol=wireguard."""
         row = usermgr.get_user(conn, uid)
         protocol = request.args.get("protocol", "openvpn")
-        if protocol not in ("openvpn", "wireguard", "hysteria1"):
-            raise ValueError("config download is available for openvpn, wireguard and hysteria1")
+        if protocol not in ("openvpn", "wireguard"):
+            raise ValueError("config download is available for openvpn and wireguard")
         acct = usermgr.get_account(conn, uid, protocol)
         if row["status"] != "active":
             raise ValueError("account is not active")
         host = db.get_setting(conn, "host", "")
         if protocol == "openvpn":
             return row["username"], adapter_for("openvpn").generate_config(dict(row), request.args.get("proto", "udp"), host)
-        return row["username"], adapter_for(protocol).generate_config(dict(row), acct, host)
+        return row["username"], adapter_for("wireguard").generate_config(dict(row), acct, host)
 
     @app.get("/api/users/<int:uid>/config")
     @api("users")
@@ -322,7 +322,7 @@ def create_app():
         proto = request.args.get("protocol", "")
         if proto == "wireguard":
             data = _client_file(conn, uid)[1][1]
-        elif proto in ("vless", "vmess", "trojan", "reality", "hysteria2", "hysteria1"):
+        elif proto in ("vless", "vmess", "trojan", "reality", "hysteria2"):
             data = None
             for item in usermgr.share_info(conn, uid):
                 if item["protocol"] == proto and item["links"]:
