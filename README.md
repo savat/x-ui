@@ -6,7 +6,7 @@
 
 ```bash
 # บน VPS ใหม่ (Ubuntu 20.04/22.04/24.04, Debian 11/12) ด้วย root
-git clone <repo-url> zivpn-panel && cd zivpn-panel
+git clone https://github.com/savat/x-ui.git zivpn-panel && cd zivpn-panel
 bash install.sh
 ```
 
