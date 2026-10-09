@@ -49,6 +49,12 @@ def cmd_adapter_uninstall(a):
     print("uninstalled: %s" % a.name)
 
 
+def cmd_adapter_sync(a):
+    ad = get_adapter(a.name)
+    changed = ad.sync()
+    print("synced: %s%s" % (a.name, " (changed)" if changed else ""))
+
+
 def cmd_health(a):
     bad = 0
     for item in health.run_all():
@@ -403,6 +409,9 @@ def main():
     s = sub.add_parser("adapter-uninstall")
     s.add_argument("name")
     s.set_defaults(fn=cmd_adapter_uninstall)
+    s = sub.add_parser("adapter-sync")
+    s.add_argument("name")
+    s.set_defaults(fn=cmd_adapter_sync)
     sub.add_parser("health").set_defaults(fn=cmd_health)
     sub.add_parser("users").set_defaults(fn=cmd_users)
     sub.add_parser("maintenance").set_defaults(fn=cmd_maintenance)

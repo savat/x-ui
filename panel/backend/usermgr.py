@@ -59,6 +59,7 @@ def _provision(conn, uid, password=None):
         acct["config"].update(res)
         _save_account(conn, acct, "active")
         touched[ad.name] = ad
+    conn.commit()                                    # commit BEFORE sync: adapters render from the DB
     for ad in touched.values():
         ad.sync()
     conn.commit()
@@ -130,6 +131,7 @@ def create(conn, data):
             _save_account(conn, acct)
             done.append((ad, acct))
             touched[ad.name] = ad
+        conn.commit()
         for ad in touched.values():
             ad.sync()
         conn.commit()
