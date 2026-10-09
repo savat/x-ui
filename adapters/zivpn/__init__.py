@@ -18,7 +18,6 @@ Before installing you must audit your chosen upstream (license, release, config 
   "listen_port":   5667,
   "obfs":          "hu``hqb`c",
   "port_range":    "6000:19999",   # optional: DNAT incoming UDP range -> listen_port ("" disables)
-  "exclude_ports": [36712],         # optional: extra UDP ports the DNAT range must NOT hijack
   "auth_port":     18099,          # optional: loopback port of this adapter's HTTP auth service
   "config_template": { ... }   # optional: full config JSON. "@PASSWORDS@" expands to the list of
                                # each user's chosen password (static mode); "@AUTH_PORT@" to auth_port.
@@ -49,7 +48,7 @@ DEFAULT_TEMPLATE = {
 NAT_UNIT = "unified-zivpn-nat.service"
 
 
-def _nat_unit_text(port, prange, exclude=""):
+def _nat_unit_text(port, prange):
     return """[Unit]
 Description=Unified VPN - ZIVPN UDP port-range DNAT
 After=network-online.target
@@ -58,13 +57,13 @@ Before=zivpn.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-Environment=ZIVPN_PORT=%s ZIVPN_RANGE=%s ZIVPN_EXCLUDE=%s
+Environment=ZIVPN_PORT=%s ZIVPN_RANGE=%s
 ExecStart=%s/zivpn-nat.sh up
 ExecStop=%s/zivpn-nat.sh down
 
 [Install]
 WantedBy=multi-user.target
-""" % (port, prange, exclude, config.SCRIPTS_DIR, config.SCRIPTS_DIR)
+""" % (port, prange, config.SCRIPTS_DIR, config.SCRIPTS_DIR)
 
 
 def _auth_unit_text(s):
@@ -257,17 +256,6 @@ WantedBy=multi-user.target
         if prange:
             shell.run(["ufw", "allow", "%s/udp" % prange])
 
-    @staticmethod
-    def _exclude_str(s):
-        """Space-separated extra UDP ports the DNAT range must not hijack (zivpn.json exclude_ports)."""
-        out = []
-        for p in s.get("exclude_ports") or []:
-            try:
-                out.append(str(int(p)))
-            except (TypeError, ValueError):
-                continue
-        return " ".join(out)
-
     def _ensure_nat(self, s):
         """Enable UDP port-range DNAT (6000:19999 -> listen_port) when port_range is set."""
         prange = str(s.get("port_range") or "").strip()
@@ -276,7 +264,7 @@ WantedBy=multi-user.target
             self._remove_nat()
             self._ensure_fw(s)
             return
-        changed = write_file(path, _nat_unit_text(s["listen_port"], prange, self._exclude_str(s)))
+        changed = write_file(path, _nat_unit_text(s["listen_port"], prange))
         if changed:
             shell.run(["systemctl", "daemon-reload"])
         if changed or servicemgr.unit_state(NAT_UNIT) != "RUNNING":
