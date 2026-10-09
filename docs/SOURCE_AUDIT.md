@@ -36,7 +36,9 @@ Rules: never `curl | bash` unknown scripts; download, read, hash, then run. GPL/
 3. Test auth, reconnect, expiry and removal on a spare VPS. The client connects on UDP `5667`, and the
    upstream's optional 6000–19999 multi-port DNAT is enabled by default (`port_range` in
    `zivpn.json` → `unified-zivpn-nat.service` runs `scripts/zivpn-nat.sh`, which DNATs `6000:19999/udp`
-   → `:5667` and excludes WireGuard's 51820). Set `"port_range": ""` to disable it.
+   → `:5667` and excludes other services' UDP ports: Hysteria2 443, OpenVPN 1194, WireGuard 51820,
+   Hysteria1 36712 + the listen port; add more via `exclude_ports` in `zivpn.json`). Set
+   `"port_range": ""` to disable it.
 4. Auth: the 1.4.9 binary accepts `auth.mode` = `passwords` / `userpass` / `http` / `command` (verified
    by probing; `password`, `external`, `cmd`, `none` are rejected). The adapter uses `http`: the server
    POSTs `{"addr","auth","tx"}` to the loopback `unified-zivpn-auth.service` (`scripts/zivpn-auth.py`),

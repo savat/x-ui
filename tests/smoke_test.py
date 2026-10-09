@@ -83,6 +83,9 @@ check("zivpn unit logs to file (connection tracking)",
       "StandardOutput=append:" in open(os.path.join(config.SYSTEMD_DIR, "zivpn.service")).read())
 json.dump({"test01": 1}, open(os.path.join(config.DATA, "zivpn-online.json"), "w"))
 check("zivpn online() reads auth-service state", all_adapters()["zivpn"].online() == {"test01": 1})
+nat = open(os.path.join(config.SCRIPTS_DIR, "zivpn-nat.sh")).read()
+check("zivpn DNAT excludes other VPN UDP ports (hysteria1/wireguard)",
+      "36712" in nat and "51820" in nat)
 
 hy1 = json.load(open(os.path.join(config.ETC, "hysteria1/config.json")))
 check("hysteria1 config uses external DB auth",

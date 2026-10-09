@@ -8,8 +8,12 @@ ACTION="${1:-up}"
 PORT="${ZIVPN_PORT:-5667}"
 RANGE="${ZIVPN_RANGE:-6000:19999}"
 CHAIN="UVPN_ZIVPN"
-# Ports that must NOT be hijacked by the range (they belong to other services).
-EXCLUDE_UDP=(51820)   # WireGuard (in range 6000-19999)
+# Ports that must NOT be hijacked by the range (they belong to other services on this host).
+# Hysteria2 443, OpenVPN 1194, WireGuard 51820, Hysteria1 36712. Extra ports can be added with
+# ZIVPN_EXCLUDE="port port ..." (the adapter passes zivpn.json "exclude_ports").
+EXCLUDE_UDP=(443 1194 51820 36712)
+[ -n "${ZIVPN_EXCLUDE:-}" ] && EXCLUDE_UDP+=($ZIVPN_EXCLUDE)
+EXCLUDE_UDP+=("${ZIVPN_PORT:-5667}")   # never hijack our own listen port either
 
 IFACE="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev" && !d){d=$(i+1)}} END {if (d) print d}')"
 [ -n "$IFACE" ] || { echo "zivpn-nat: cannot detect default interface" >&2; exit 1; }
