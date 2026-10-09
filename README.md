@@ -20,7 +20,7 @@ bash install.sh
 
 | สิ่งที่ทำ | วิธี |
 |---|---|
-| Web Panel | `https://<domain หรือ IP>` |
+| Web Panel | URL ของ Vercel (เช่น `https://<project>.vercel.app`) — ดู env `UVPN_API_BASE` ด้านล่าง |
 | CLI เมนู | `m` (หรือ `unified-vpn`) — เมนูภาษาไทย |
 | จัดการผู้ดูแลระบบ | เมนู `m` → `7) จัดการผู้ดูแลระบบ` (เพิ่ม/แก้ไข/ลบ ได้ตลอด) หรือ `unified-vpn create-admin --username NAME` |
 | ตรวจสุขภาพ | `unified-vpn health` หรือ `scripts/health-check.sh` |
@@ -32,10 +32,13 @@ bash install.sh
 ## สถาปัตยกรรม (4 ชั้น)
 
 ```
-Web Panel (static JS)  →  Flask REST API (127.0.0.1:8080)  →  Adapters  →  systemd services
-                              ▲ nginx :443 (TLS) เป็นทางเข้าเดียว
+Next.js Web UI (Vercel, SSR)  ──/api──►  Flask REST API (127.0.0.1:8080)  →  Adapters  →  systemd services
+                                              ▲ nginx :443 (TLS) เป็นทางเข้าเดียว (VPS รันแค่ Flask)
 ```
 
+Web UI เป็น Next.js (App Router, SSR) ในโฟลเดอร์ `panel-next/` deploy บน **Vercel** ส่วน VPS รันแค่ Flask API
+ตั้ง env บน Vercel: `UVPN_API_BASE = https://<โดเมน-VPS>` และตั้ง **Root Directory = `panel-next`**
+เบราว์เซอร์คุยกับ Vercel เท่านั้น (ทุก `/api/*` ถูก proxy ไป VPS พร้อมแนบ cookie) จึงไม่ต้องตั้ง CORS และ CSRF ใช้ได้เดิม
 รายละเอียดใน `docs/ARCHITECTURE.md` · ขั้นตอนตรวจ upstream ใน `docs/SOURCE_AUDIT.md` · เช็กลิสต์ทดสอบบน VPS จริงใน `docs/TESTING.md`
 
 ## สิ่งที่ "ยังไม่ได้ทำ/มีข้อจำกัด" (พูดตรง ๆ ตามหลักในแผน)

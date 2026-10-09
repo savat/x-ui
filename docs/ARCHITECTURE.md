@@ -1,15 +1,32 @@
 # Architecture
 
 ```
-install.sh ─► /opt/unified-vpn/{panel,adapters,scripts,config,backups,venv}  +  /var/lib/unified-vpn/database.db
+VPS:  install.sh ─► /opt/unified-vpn/{panel,adapters,scripts,config,backups,venv}  +  /var/lib/unified-vpn/database.db
 
-Browser ──HTTPS──► nginx :443 ──► gunicorn 127.0.0.1:8080 (Flask)
-                       │                 │
-                       │                 ├─ usermgr  (DB state first, then adapters)
-                       │                 ├─ servicemgr (allow-listed systemd units only)
-                       │                 └─ adapters/{ssh,openvpn,xray,zivpn}
-                       └─ /ssh-ws /vless /vmess /trojan  ─► loopback cores (WebSocket)
+Browser ──HTTPS──► Vercel (Next.js SSR UI, panel-next/) ─────────────► VPS
+                     │  server components fetch API server-side         │
+                     │  browser /api/* proxied by                          nginx :443
+                     │  app/api/[...path]/route.ts (relays Set-Cookie)  ──► gunicorn 127.0.0.1:8080 (Flask JSON API)
+                     │                                                       │  usermgr / servicemgr / adapters
+                     └─ UI pages (SSR)                                    └─ /ssh-ws /vless /vmess /trojan ─► cores (WebSocket)
 ```
+
+The web UI is a **Next.js (App Router, SSR) app** in `panel-next/`, deployed to **Vercel**. The Flask
+backend stays on the VPS and is the single source of truth — the Next app contains no protocol logic.
+
+- Set `UVPN_API_BASE` on Vercel to the VPS origin, e.g. `https://vpn.example.com` (must be HTTPS with
+  a valid certificate).
+- Server components render by fetching `UVPN_API_BASE/api/*` and forwarding the browser session
+  cookie (`lib/server.ts`).
+- Every browser `/api/*` call is proxied through the Vercel app by
+  `app/api/[...path]/route.ts`, which forwards method/body and **relays `Set-Cookie`**. This keeps the
+  Flask session cookie same-origin with the UI, so there is no CORS and the `X-CSRF-Token` flow is
+  unchanged. The Flask cookie is signed by `UVPN_SECRET_KEY`; the proxy just passes it back and forth.
+- The VPS nginx serves the Flask API on `:443` (the same endpoints the legacy bundled UI used); the VPS
+  no longer runs any Node process.
+
+Note: large responses (e.g. multi-GB backup downloads) are relayed through Vercel and may hit Vercel's
+response limits; download very large backups directly from the VPS if needed.
 
 ## Adapter interface (`adapters/base.py`)
 `install, uninstall, configure, start, stop, restart, status, create_user, delete_user, list_users`
@@ -34,6 +51,7 @@ The panel never contains protocol-specific commands.
 - **Safety:** no shell strings (`subprocess` lists), usernames validated `^[a-z][a-z0-9_-]{0,31}$` (1-32 chars), system users are never taken over, services controlled only from an allow-list, `ssh`/`nginx`/panel can only be restarted, sshd_config changes go backup → `sshd -t` → reload → rollback, port conflicts abort (nothing is killed), firewall allows SSH before enabling.
 - **Panel security:** loopback bind, HTTPS via nginx, Secure/HttpOnly/SameSite=Strict cookie, CSRF header, 30 min idle / 8 h absolute session, login rate limit + 5-strike lockout (15 min), CSP, audit log, roles (superadmin / admin / support-read-only).
 - **Connection vs device limit:** only Max Connections is enforced. Max Devices is stored but explicitly *not* enforced (plan §31).
+- **Web UI:** Next.js App Router + React 19 + Tailwind CSS 4 in `panel-next/` (server components for data, client components for actions). Deployed to **Vercel** (Root Directory = `panel-next`, env `UVPN_API_BASE=https://<vps>`); the VPS runs only the Flask API. Built with webpack (no Turbopack native binding needed).
 
 ## Layout on the server
 `/opt/unified-vpn` code+config (config/panel.env 0600, backup.key 0600) · `/var/lib/unified-vpn/database.db` · `/etc/xray/config.json` · `/etc/openvpn/server/uvpn-{udp,tcp}.conf` + `/etc/openvpn/uvpn-pki` · `/etc/zivpn` · `/etc/unified-vpn/{nginx.d,nginx-http.d,tls}`

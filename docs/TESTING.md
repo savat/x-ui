@@ -2,8 +2,16 @@
 
 Automated (no root needed): `PYTHONPATH=.:panel python3 tests/smoke_test.py`
 
+Next.js web UI (`panel-next/`, deployed on Vercel): locally `cd panel-next && npm install && npm run build`,
+then with a backend reachable set `UVPN_API_BASE=https://<vps>` and run `npm run start` (or `npm run dev`).
+Set `UVPN_API_BASE` in the Vercel project env (VPS origin, HTTPS with a valid cert) and Root Directory
+= `panel-next`. The SSR smoke harness in the repo's scratch dir (`mock_api.py` + `ssr_smoke.sh` +
+`proxy_smoke.sh`) checks page rendering, auth redirects, and that the `/api/*` proxy forwards the session
+cookie/CSRF header and relays `Set-Cookie`.
+
 Manual on a fresh Ubuntu VPS:
 - [ ] `bash install.sh` finishes; `unified-vpn health` all `[OK]`
+- [ ] Vercel UI loads; login works; every page renders; QR images and config/backup downloads work through the proxy
 - [ ] Protocol choice works for both "เลือกทั้งหมด" and "เลือกเอง" (numbers/names)
 - [ ] Installing with no admin, then `m` → `7) จัดการผู้ดูแลระบบ` creates one; login works; wrong password x5 locks the account
 - [ ] Create a user with each protocol; delete; disable; enable; renew
